@@ -95,6 +95,14 @@ fn load_config() -> VoiceConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(16000),
+        enable_barge_in: env::var("enable_barge_in")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(true),
+        barge_in_min_chars: env::var("barge_in_min_chars")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2),
     }
 }
 

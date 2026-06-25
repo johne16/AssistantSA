@@ -73,6 +73,13 @@ pub struct VoiceConfig {
     pub stt_encoding: String,
     /// Uplink sample rate in Hz. Must match the mobile capture rate. Default 16000.
     pub stt_sample_rate: u32,
+    /// Master switch for barge-in. When false, interim transcripts never abort a
+    /// turn and the reply always plays to completion.
+    pub enable_barge_in: bool,
+    /// Minimum interim transcript length (chars, trimmed) that counts as a real
+    /// barge-in. Filters stray one/two-char interims that would otherwise cut the
+    /// reply off. Mirrors the reference's barge_in_min_chars.
+    pub barge_in_min_chars: usize,
 }
 
 impl VoiceConfig {

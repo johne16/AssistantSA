@@ -364,6 +364,10 @@ pub struct VoiceSession {
     /// to ap-assistant on each voiceQuery. Never parsed to bare claims here.
     pub tenant_context_token: String,
     pub abort: AbortSignal,
+    /// True only while a turn is actively emitting audio. Barge-in is armed only
+    /// in this window, so an interim transcript that arrives when nothing is
+    /// playing cannot abort a turn. Mirrors the reference's audio_playing gate.
+    pub audio_playing: Arc<AtomicBool>,
     pub latency: LatencyTracker,
 }
 
@@ -384,6 +388,7 @@ impl VoiceSession {
             config,
             tenant_context_token,
             abort: AbortSignal::new(),
+            audio_playing: Arc::new(AtomicBool::new(false)),
             latency: LatencyTracker::default(),
         }
     }
@@ -401,13 +406,15 @@ impl VoiceSession {
         let config = self.config.clone();
         let token = self.tenant_context_token.clone();
         let worker_abort = abort.clone();
+        let worker_audio_playing = self.audio_playing.clone();
         let worker = tokio::spawn(async move {
             while let Some(transcript) = turn_rx.recv().await {
                 worker_abort.reset();
                 // Barge-in is normal turn cancellation, not an error; only real
                 // provider/stream failures are logged.
                 if let Err(e) = run_turn(
-                    &assistant, &tts, &sink, &config, &worker_abort, &token, transcript,
+                    &assistant, &tts, &sink, &config, &worker_abort,
+                    &worker_audio_playing, &token, transcript,
                 )
                 .await
                 {
@@ -415,14 +422,28 @@ impl VoiceSession {
                         eprintln!("[ap-voice] turn failed: {e}");
                     }
                 }
+                // Turn done (completed or barged): disarm barge-in until the next
+                // turn starts emitting audio.
+                worker_audio_playing.store(false, Ordering::SeqCst);
             }
         });
 
         // Ingestion pump.
+        let enable_barge_in = self.config.enable_barge_in;
+        let barge_in_min_chars = self.config.barge_in_min_chars;
+        let audio_playing = self.audio_playing.clone();
         while let Some(t) = self.stt.next_transcript().await {
-            if !t.is_final && !t.text.trim().is_empty() {
-                // Barge-in: interim speech aborts the in-progress turn.
-                abort.raise();
+            if !t.is_final {
+                // Barge-in: interim speech aborts the in-progress turn, but only
+                // when one is actually playing and the interim is long enough to
+                // be real speech rather than a stray fragment or playback echo.
+                let text = t.text.trim();
+                if enable_barge_in
+                    && audio_playing.load(Ordering::SeqCst)
+                    && text.chars().count() >= barge_in_min_chars
+                {
+                    abort.raise();
+                }
             }
             if t.is_final && !t.text.trim().is_empty() {
                 let _ = self
@@ -446,6 +467,7 @@ async fn run_turn(
     sink: &Arc<dyn ResponseSink>,
     config: &VoiceConfig,
     abort: &AbortSignal,
+    audio_playing: &Arc<AtomicBool>,
     tenant_context_token: &str,
     transcript: String,
 ) -> Result<(), VoiceError> {
@@ -467,6 +489,7 @@ async fn run_turn(
         sink.clone(),
         abort.clone(),
         first_audio.clone(),
+        audio_playing.clone(),
     );
 
     let mut streamer = SentenceStreamer::new(24);
@@ -482,14 +505,14 @@ async fn run_turn(
         reply_text.push_str(&token);
         for sentence in streamer.push(&token) {
             tts_total_ms += stream_sentence(
-                tts, sink, abort, &first_audio, &filler_handle, &sentence,
+                tts, sink, abort, &first_audio, audio_playing, &filler_handle, &sentence,
             )
             .await?;
         }
     }
     if let Some(tail) = streamer.flush() {
         tts_total_ms += stream_sentence(
-            tts, sink, abort, &first_audio, &filler_handle, &tail,
+            tts, sink, abort, &first_audio, audio_playing, &filler_handle, &tail,
         )
         .await?;
     }
@@ -516,6 +539,7 @@ async fn stream_sentence(
     sink: &Arc<dyn ResponseSink>,
     abort: &AbortSignal,
     first_audio: &Arc<AtomicBool>,
+    audio_playing: &Arc<AtomicBool>,
     filler_handle: &tokio::task::JoinHandle<()>,
     sentence: &str,
 ) -> Result<u128, VoiceError> {
@@ -540,6 +564,8 @@ async fn stream_sentence(
                 // Real audio began; cancel filler.
                 filler_handle.abort();
             }
+            // Audio is now going out: arm barge-in for this turn.
+            audio_playing.store(true, Ordering::SeqCst);
             sink.send(ResponseEvent::AudioChunk(unit)).await?;
         }
     }
@@ -551,6 +577,7 @@ async fn stream_sentence(
         if !first_audio.swap(true, Ordering::SeqCst) {
             filler_handle.abort();
         }
+        audio_playing.store(true, Ordering::SeqCst);
         sink.send(ResponseEvent::AudioChunk(carry)).await?;
     }
     Ok(start.elapsed().as_millis())
@@ -564,6 +591,7 @@ fn spawn_filler(
     sink: Arc<dyn ResponseSink>,
     abort: AbortSignal,
     first_audio: Arc<AtomicBool>,
+    audio_playing: Arc<AtomicBool>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tokio::time::sleep(config.filler_delay()).await;
@@ -597,12 +625,14 @@ fn spawn_filler(
                     return;
                 }
                 let unit: Vec<u8> = carry.drain(..PCM_CHUNK_BYTES).collect();
+                audio_playing.store(true, Ordering::SeqCst);
                 let _ = sink.send(ResponseEvent::AudioChunk(unit)).await;
             }
         }
         if carry.is_empty() || first_audio.load(Ordering::SeqCst) || abort.is_raised() {
             return;
         }
+        audio_playing.store(true, Ordering::SeqCst);
         let _ = sink.send(ResponseEvent::AudioChunk(carry)).await;
     })
 }
