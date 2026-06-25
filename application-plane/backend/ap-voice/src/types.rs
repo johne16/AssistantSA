@@ -51,6 +51,10 @@ pub enum VoiceError {
 /// Outbound events on the client duplex socket. Audio is never persisted.
 #[derive(Debug, Clone)]
 pub enum ResponseEvent {
+    /// Marks the start of a fresh turn's audio. Sent before any audio of the
+    /// turn so the client stops dropping the barged-out turn's tail and plays
+    /// this one from the beginning.
+    ResponseStart,
     /// MP3 audio chunk; streamed, never fully buffered.
     AudioChunk(Vec<u8>),
     /// User's transcribed query text for the shared chat thread.
@@ -73,13 +77,9 @@ pub struct VoiceConfig {
     pub stt_encoding: String,
     /// Uplink sample rate in Hz. Must match the mobile capture rate. Default 16000.
     pub stt_sample_rate: u32,
-    /// Master switch for barge-in. When false, interim transcripts never abort a
-    /// turn and the reply always plays to completion.
+    /// When false, the server ignores client barge_in messages and every reply
+    /// plays to completion.
     pub enable_barge_in: bool,
-    /// Minimum interim transcript length (chars, trimmed) that counts as a real
-    /// barge-in. Filters stray one/two-char interims that would otherwise cut the
-    /// reply off. Mirrors the reference's barge_in_min_chars.
-    pub barge_in_min_chars: usize,
 }
 
 impl VoiceConfig {

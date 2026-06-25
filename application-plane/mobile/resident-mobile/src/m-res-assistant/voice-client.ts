@@ -108,13 +108,22 @@ export function open_voice_stream(
     }
   };
 
+  // Local barge-in: tell the backend to stop generating the current turn. The
+  // client has already flushed its own playback queue.
+  const send_barge_in = () => {
+    console.log("[voice] send_barge_in, socket state", socket.readyState);
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "barge_in" }));
+    }
+  };
+
   socket.onopen = () => {
     // First frame authorizes the stream with the token.
     const open_frame: voice_stream_open = { tenant_context_token, voice_id };
     socket.send(JSON.stringify(open_frame));
     handlers.on_status("live");
     // Begin capture; chunks stream up as they are encoded.
-    audio.start_capture(send_chunk).catch((err: unknown) => {
+    audio.start_capture(send_chunk, send_barge_in).catch((err: unknown) => {
       handlers.on_error(err instanceof Error ? err.message : "capture failed");
       teardown();
     });
@@ -128,11 +137,17 @@ export function open_voice_stream(
       audio.play_chunk(bytes_to_base64(bytes));
       return;
     }
-    // Text frame = a transcript event: { type: user_transcript|assistant_transcript, text }.
+    // Text frame = a control or transcript event keyed by type.
     let frame: { type?: string; text?: string };
     try {
       frame = JSON.parse(message.data) as { type?: string; text?: string };
     } catch {
+      return;
+    }
+    if (frame.type === "response_start") {
+      // A fresh response turn is starting: let playback resume from the top.
+      console.log("[voice] response_start received");
+      audio.begin_response();
       return;
     }
     if (frame.type === "user_transcript" || frame.type === "assistant_transcript") {

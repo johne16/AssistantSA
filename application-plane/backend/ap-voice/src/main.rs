@@ -17,8 +17,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
 use ap_voice::{
-    AssistantClient, AssistantWsClient, DeepgramTranscriber, ElevenLabsTts, ResponseEvent,
-    ResponseSink, Tts, TtsSettings, VoiceConfig, VoiceError, VoiceSession,
+    AbortSignal, AssistantClient, AssistantWsClient, DeepgramTranscriber, ElevenLabsTts,
+    ResponseEvent, ResponseSink, Tts, TtsSettings, VoiceConfig, VoiceError, VoiceSession,
 };
 
 /// Inbound handshake frame: the first text frame carries the encoded token and
@@ -39,6 +39,22 @@ struct TranscriptFrame<'a> {
     text: String,
 }
 
+/// Outbound control frame (no payload), e.g. response_start.
+#[derive(Debug, Serialize)]
+struct ControlFrame<'a> {
+    #[serde(rename = "type")]
+    kind: &'a str,
+}
+
+/// Inbound control frame from the client after the handshake. The only control
+/// today is barge_in, sent the instant the client detects the resident speaking
+/// over the assistant.
+#[derive(Debug, Deserialize)]
+struct VoiceControl {
+    #[serde(rename = "type")]
+    kind: String,
+}
+
 type WsSink = SplitSink<WebSocketStream<TcpStream>, Message>;
 
 /// ResponseSink that writes turn events to the client WS. Audio chunks go as
@@ -51,6 +67,14 @@ struct WsResponseSink {
 impl ResponseSink for WsResponseSink {
     async fn send(&self, event: ResponseEvent) -> Result<(), VoiceError> {
         let msg = match event {
+            ResponseEvent::ResponseStart => {
+                let frame = ControlFrame { kind: "response_start" };
+                Message::Text(
+                    serde_json::to_string(&frame)
+                        .map_err(|e| VoiceError::WebSocket(e.to_string()))?
+                        .into(),
+                )
+            }
             ResponseEvent::AudioChunk(bytes) => Message::Binary(bytes.into()),
             ResponseEvent::UserTranscript(text) => {
                 let frame = TranscriptFrame { kind: "user_transcript", text };
@@ -99,10 +123,6 @@ fn load_config() -> VoiceConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(true),
-        barge_in_min_chars: env::var("barge_in_min_chars")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(2),
     }
 }
 
@@ -198,8 +218,14 @@ async fn handle_client(tcp: TcpStream, config: VoiceConfig) -> Result<(), VoiceE
         let _ = audio_up.send(frame);
     }
 
-    // Audio-up pump: keep forwarding inbound binary frames into the Transcriber
-    // for the rest of the session, concurrently with the turn engine.
+    // Shared barge-in flag: the inbound pump raises it on a client barge_in
+    // message; the turn engine checks it between TTS units and stops generating.
+    let abort = AbortSignal::new();
+    let enable_barge_in = config.enable_barge_in;
+
+    // Inbound pump: forward binary audio frames into the Transcriber, and honor
+    // client barge_in control messages, for the rest of the session.
+    let pump_abort = abort.clone();
     let audio_pump = tokio::spawn(async move {
         while let Some(msg) = ws_stream.next().await {
             match msg {
@@ -207,6 +233,17 @@ async fn handle_client(tcp: TcpStream, config: VoiceConfig) -> Result<(), VoiceE
                     // Drop the frame (not crash) if the STT loop is gone.
                     if audio_up.send(bytes.to_vec()).is_err() {
                         break;
+                    }
+                }
+                Ok(Message::Text(txt)) => {
+                    // Client barge-in: stop the in-progress turn at once.
+                    if enable_barge_in {
+                        if let Ok(ctrl) = serde_json::from_str::<VoiceControl>(&txt) {
+                            if ctrl.kind == "barge_in" {
+                                eprintln!("[ap-voice] barge_in received; raising abort");
+                                pump_abort.raise();
+                            }
+                        }
                     }
                 }
                 Ok(Message::Close(_)) | Err(_) => break,
@@ -223,6 +260,7 @@ async fn handle_client(tcp: TcpStream, config: VoiceConfig) -> Result<(), VoiceE
         sink,
         config,
         tenant_context_token,
+        abort,
     );
     session.run().await;
 

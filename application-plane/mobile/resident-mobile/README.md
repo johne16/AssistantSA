@@ -39,6 +39,28 @@ Native changes (changed native code, or added a library with native modules): re
 npm run android    # or: npm run ios
 ```
 
+## Patched dependency: @speechmatics/expo-two-way-audio
+
+The voice playback engine is patched via `patch-package` (patch in `patches/`, applied automatically by the `postinstall` script on every `npm install`).
+
+What the patch adds: a `flush()` function on the native audio engine (Android `AudioTrack.flush()` after pause/play; iOS `AVAudioPlayerNode.stop()`/`play()`), exposed through both native modules and the JS wrapper (`src/core.ts`, `build/core.js`, `build/core.d.ts`).
+
+Why: the library queues PCM into an Android `AudioTrack` (`MODE_STREAM`) / iOS player node with no public mid-stream flush, so barge-in could not cut in-flight assistant speech. `m-res-assistant/audio-io.ts` calls `flush()` on barge-in to drop the rest of the reply instantly.
+
+The patch touches native source, so after a fresh install the dev build must be rebuilt (`npm run android` / `npm run ios`) for it to take effect.
+
+Regenerating the patch (after editing the library source in `node_modules`):
+
+```
+# Windows: override git line-ending/long-path handling for the diff, and remove
+# stale Gradle output so it is not swept into the patch.
+rm -rf node_modules/@speechmatics/expo-two-way-audio/android/build
+GIT_CONFIG_COUNT=2 \
+GIT_CONFIG_KEY_0=core.autocrlf GIT_CONFIG_VALUE_0=false \
+GIT_CONFIG_KEY_1=core.longpaths GIT_CONFIG_VALUE_1=true \
+npx patch-package @speechmatics/expo-two-way-audio
+```
+
 ## Config
 
 Client config lives in `src/app-config.ts`, the composition root that injects each module's config keys:

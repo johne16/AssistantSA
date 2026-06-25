@@ -1,0 +1,118 @@
+diff --git a/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/AudioEngine.kt b/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/AudioEngine.kt
+index 0103151..ca55328 100644
+--- a/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/AudioEngine.kt
++++ b/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/AudioEngine.kt
+@@ -286,6 +286,22 @@ class AudioEngine (context: Context) {
+         audioTrack.write(data, 0, data.size)
+     }
+ 
++    // Drop all audio not yet played: clear the pending sample queue and flush the
++    // AudioTrack's own buffer. flush() requires the track be paused/stopped, so
++    // pause, flush, then resume. Used for barge-in to cut in-flight speech.
++    fun flush() {
++        audioSampleQueue.clear()
++        try {
++            audioTrack.pause()
++            audioTrack.flush()
++            audioTrack.play()
++        } catch (e: Exception) {
++            Log.e("AudioEngine", "Error flushing audio track", e)
++        }
++        isPlaying = false
++        onOutputVolumeCallback?.invoke(0.0F)
++    }
++
+     fun bypassVoiceProcessing(bypass: Boolean) {
+         if (bypass) {
+             echoCanceler?.enabled = false
+diff --git a/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/ExpoTwoWayAudioModule.kt b/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/ExpoTwoWayAudioModule.kt
+index 303873e..aa50d48 100644
+--- a/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/ExpoTwoWayAudioModule.kt
++++ b/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/ExpoTwoWayAudioModule.kt
+@@ -66,6 +66,11 @@ class ExpoTwoWayAudioModule : Module() {
+              audioEngine?.bypassVoiceProcessing(bypass)
+          }
+ 
++         Function("flush") {
++             audioEngine?.flush()
++             null
++         }
++
+          Function("isPlaying") {
+              audioEngine?.isPlaying ?: false
+          }
+diff --git a/node_modules/@speechmatics/expo-two-way-audio/build/core.d.ts b/node_modules/@speechmatics/expo-two-way-audio/build/core.d.ts
+index 3f3e001..16d9527 100644
+--- a/node_modules/@speechmatics/expo-two-way-audio/build/core.d.ts
++++ b/node_modules/@speechmatics/expo-two-way-audio/build/core.d.ts
+@@ -2,6 +2,7 @@ import { type PermissionResponse } from "expo-modules-core";
+ export declare function initialize(): Promise<any>;
+ export declare function playPCMData(audioData: Uint8Array): any;
+ export declare function bypassVoiceProcessing(bypass: boolean): any;
++export declare function flush(): any;
+ export declare function toggleRecording(val: boolean): boolean;
+ export declare function isRecording(): boolean;
+ export declare function tearDown(): any;
+diff --git a/node_modules/@speechmatics/expo-two-way-audio/build/core.js b/node_modules/@speechmatics/expo-two-way-audio/build/core.js
+index 8904fc2..e4fa6f6 100644
+--- a/node_modules/@speechmatics/expo-two-way-audio/build/core.js
++++ b/node_modules/@speechmatics/expo-two-way-audio/build/core.js
+@@ -8,6 +8,9 @@ export function playPCMData(audioData) {
+ export function bypassVoiceProcessing(bypass) {
+     return ExpoTwoWayAudioModule.bypassVoiceProcessing(bypass);
+ }
++export function flush() {
++    return ExpoTwoWayAudioModule.flush();
++}
+ export function toggleRecording(val) {
+     return ExpoTwoWayAudioModule.toggleRecording(val);
+ }
+diff --git a/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift b/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift
+index 46d6b22..658fb57 100644
+--- a/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift
++++ b/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift
+@@ -239,6 +239,14 @@ class AudioEngine {
+         input.isVoiceProcessingBypassed = bypass
+     }
+ 
++    // Drop all audio not yet played. stop() clears every scheduled buffer on the
++    // player node; play() leaves it ready for the next turn. Used for barge-in.
++    func flush() {
++        speechPlayer.stop()
++        speechPlayer.play()
++        updateOutputVolume()
++    }
++    
+     func toggleRecording(_ val: Bool) -> Bool {
+         isRecording = val
+         if !isRecording {
+diff --git a/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift b/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift
+index 1634369..c340710 100644
+--- a/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift
++++ b/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift
+@@ -114,6 +114,10 @@ public class ExpoTwoWayAudioModule: Module {
+             self.audioEngine?.bypassVoiceProcessing(bypass)
+         }
+ 
++        Function("flush") {
++            self.audioEngine?.flush()
++        }
++
+         Function("isPlaying") { () -> Bool in
+             return self.audioEngine?.isPlaying ?? false
+         }
+diff --git a/node_modules/@speechmatics/expo-two-way-audio/src/core.ts b/node_modules/@speechmatics/expo-two-way-audio/src/core.ts
+index 2ab05d5..0a752ae 100644
+--- a/node_modules/@speechmatics/expo-two-way-audio/src/core.ts
++++ b/node_modules/@speechmatics/expo-two-way-audio/src/core.ts
+@@ -13,6 +13,10 @@ export function bypassVoiceProcessing(bypass: boolean) {
+   return ExpoTwoWayAudioModule.bypassVoiceProcessing(bypass);
+ }
+ 
++export function flush() {
++  return ExpoTwoWayAudioModule.flush();
++}
++
+ export function toggleRecording(val: boolean): boolean {
+   return ExpoTwoWayAudioModule.toggleRecording(val);
+ }

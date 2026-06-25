@@ -3,6 +3,7 @@ import {
   initialize,
   toggleRecording,
   playPCMData,
+  flush,
   tearDown,
   requestMicrophonePermissionsAsync,
   addExpoTwoWayAudioEventListener,
@@ -21,26 +22,20 @@ import type { audio_io } from "./types";
 // matching the server Deepgram uplink; change the server uplink and the TTS
 // output rate together.
 //
-// Playback: the server emits pcm_16000 in small (~40ms) units. Because the
-// engine exposes no mid-stream flush, the units are NOT handed straight to
-// playPCMData. They are held in a JS-side queue this module owns and fed to the
-// engine one unit at a time, paced to realtime, so the engine's own queue stays
-// shallow (about lead_ms ahead). Barge-in then drops the JS queue and stops
-// feeding; only what was already handed over (up to lead_ms plus the hardware
-// buffer) plays out.
+// Playback: the server emits pcm_16000 units handed straight to playPCMData. The
+// patched library exposes flush(), which clears both its sample queue and the
+// AudioTrack buffer, so barge-in cuts in-flight speech instantly; no JS-side
+// pacing layer is needed.
 //
-// Barge-in is detected locally: onInputVolumeLevelData crosses a threshold.
-// Acoustic Echo Cancellation is what makes this reliable, since the input level
-// reflects only the user's voice, not the assistant's playback.
+// Barge-in is detected locally: onInputVolumeLevelData crosses a threshold while
+// the assistant is playing (tracked via onOutputVolumeLevelData). On barge-in
+// the engine is flushed and the backend is signaled to stop generating.
 
-// pcm_16000 mono s16 = 32000 bytes/sec, so 32 bytes per millisecond.
-const pcm_bytes_per_ms = 32;
-// How far ahead of realtime to keep the engine fed. Covers timer jitter so
-// playback never underruns; also the upper bound on audio left after a barge-in.
-const lead_ms = 120;
 // Input level (0..1) above which the user is treated as speaking, triggering a
 // barge-in flush of any in-flight playback.
-const barge_in_level = 0.12;
+const barge_in_level = 0.28;
+// Output level (0..1) above which the assistant is treated as audibly playing.
+const playing_level = 0.01;
 
 // base64 -> bytes for the downstream PCM units fed to playPCMData.
 const b64_chars =
@@ -84,61 +79,27 @@ export function use_audio_io(): audio_io {
   // once before any capture/playback call, and is re-run after a tearDown.
   const init = useRef<Promise<void> | null>(null);
   const mic_sub = useRef<{ remove: () => void } | null>(null);
-  const vol_sub = useRef<{ remove: () => void } | null>(null);
-  // Playback units this module owns, fed to the engine one at a time so its
-  // native queue stays shallow and barge-in can drop the rest instantly.
-  const play_queue = useRef<Uint8Array[]>([]);
-  const feeding = useRef(false);
-  const feed_timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Wall-clock playhead: the time the next unit is due to start playing. Units
-  // are fed once that time is within lead_ms of now, keeping a fixed buffer.
-  const feed_at = useRef(0);
-  // Most recent input level, used to drop assistant audio that is still in
-  // flight from an aborted turn while the user is mid-sentence.
-  const last_input_level = useRef(0);
+  const in_vol_sub = useRef<{ remove: () => void } | null>(null);
+  const out_vol_sub = useRef<{ remove: () => void } | null>(null);
+  // Whether the assistant is currently audibly playing, driven by the engine's
+  // output level. This is what makes a user level crossing a real barge-in.
+  const assistant_playing = useRef(false);
+  // True from a barge-in until the backend signals a fresh response
+  // (begin_response). While set, incoming audio is dropped: it is the tail of
+  // the barged-out turn the server already sent before it stopped. Released by
+  // response_start, so the next reply's opening is never dropped.
+  const suppressing = useRef(false);
 
-  // Hand the engine every unit whose start time is within lead_ms of now, then
-  // reschedule for when the next one comes due. Keeps the engine ~lead_ms ahead
-  // of realtime without dumping the whole queue into its unflushable buffer.
-  const pump = (): void => {
-    feed_timer.current = null;
-    const now = Date.now();
-    if (feed_at.current === 0) feed_at.current = now;
-    while (play_queue.current.length > 0 && feed_at.current <= now + lead_ms) {
-      const unit = play_queue.current.shift() as Uint8Array;
-      try {
-        playPCMData(unit);
-      } catch {
-        // Engine unavailable; drop this unit and keep draining.
-      }
-      feed_at.current += unit.length / pcm_bytes_per_ms;
-    }
-    if (play_queue.current.length > 0) {
-      const wait = Math.max(0, feed_at.current - lead_ms - Date.now());
-      feed_timer.current = setTimeout(pump, wait);
-    } else {
-      feeding.current = false;
-    }
-  };
-
-  const start_feeding = (): void => {
-    if (feeding.current) return;
-    feeding.current = true;
-    // Fresh playhead so a gap since the last unit does not dump the queue.
-    feed_at.current = 0;
-    pump();
-  };
-
-  // Drop everything not yet handed to the engine and stop feeding. The units
-  // already in the engine (up to lead_ms) plus its hardware buffer play out.
+  // Drop all in-flight playback: flush the native engine (sample queue plus the
+  // AudioTrack buffer) and stop accepting more audio until the next response.
   const flush_playback = (): void => {
-    play_queue.current = [];
-    if (feed_timer.current) {
-      clearTimeout(feed_timer.current);
-      feed_timer.current = null;
+    try {
+      flush();
+    } catch {
+      // Engine unavailable; nothing to flush.
     }
-    feeding.current = false;
-    feed_at.current = 0;
+    assistant_playing.current = false;
+    suppressing.current = true;
   };
 
   const ensure_initialized = (): Promise<void> => {
@@ -158,7 +119,10 @@ export function use_audio_io(): audio_io {
   };
 
   return {
-    async start_capture(on_chunk: (pcm_base64: string) => void): Promise<void> {
+    async start_capture(
+      on_chunk: (pcm_base64: string) => void,
+      on_barge_in: () => void,
+    ): Promise<void> {
       const permission = await requestMicrophonePermissionsAsync();
       if (!permission.granted) {
         throw new Error("microphone permission denied");
@@ -171,17 +135,21 @@ export function use_audio_io(): audio_io {
       mic_sub.current = addExpoTwoWayAudioEventListener("onMicrophoneData", (event) => {
         on_chunk(bytes_to_base64(event.data));
       });
+      // Track whether the assistant is audibly playing from the engine's output
+      // level, so barge-in is only armed while there is speech to interrupt.
+      out_vol_sub.current?.remove();
+      out_vol_sub.current = addExpoTwoWayAudioEventListener("onOutputVolumeLevelData", (event) => {
+        assistant_playing.current = event.data > playing_level;
+      });
       // Local barge-in: when the (echo-cancelled) input level crosses the
-      // threshold while audio is in flight, the user is speaking over the
-      // assistant; drop the queued playback at once.
-      vol_sub.current?.remove();
-      vol_sub.current = addExpoTwoWayAudioEventListener("onInputVolumeLevelData", (event) => {
-        last_input_level.current = event.data;
-        if (
-          event.data > barge_in_level &&
-          (feeding.current || play_queue.current.length > 0)
-        ) {
+      // threshold while the assistant is playing, the user is speaking over it;
+      // flush local playback and tell the backend to stop generating.
+      in_vol_sub.current?.remove();
+      in_vol_sub.current = addExpoTwoWayAudioEventListener("onInputVolumeLevelData", (event) => {
+        if (event.data > barge_in_level && assistant_playing.current) {
+          console.log("[voice] barge-in detected, flushing + signaling backend");
           flush_playback();
+          on_barge_in();
         }
       });
       // Unmute the mic to begin emitting onMicrophoneData events.
@@ -191,29 +159,39 @@ export function use_audio_io(): audio_io {
       toggleRecording(false);
       mic_sub.current?.remove();
       mic_sub.current = null;
-      vol_sub.current?.remove();
-      vol_sub.current = null;
+      in_vol_sub.current?.remove();
+      in_vol_sub.current = null;
+      out_vol_sub.current?.remove();
+      out_vol_sub.current = null;
     },
     play_chunk(audio_base64: string): void {
-      // Drop audio that is still arriving from an aborted turn while the user is
-      // mid-sentence, so a barge-in does not get overrun by the in-flight tail.
-      if (last_input_level.current > barge_in_level) return;
-      // Hold the unit in the JS queue; the paced feeder hands it to the engine.
-      play_queue.current.push(base64_to_bytes(audio_base64));
+      // Drop the barged-out turn's tail until the backend signals the next
+      // response; a fresh reply's opening is never dropped.
+      if (suppressing.current) return;
+      const unit = base64_to_bytes(audio_base64);
       void ensure_initialized()
-        .then(start_feeding)
+        .then(() => {
+          // Re-check: a barge-in may have landed while init was resolving.
+          if (!suppressing.current) playPCMData(unit);
+        })
         .catch(() => {
           // Engine failed to initialize; capture surfaces it via on_error.
         });
     },
+    begin_response(): void {
+      // Fresh response turn: stop dropping audio so it plays from the top.
+      suppressing.current = false;
+    },
     stop_playback(): void {
-      // Barge-in or close: drop the JS queue, then tear the engine down (no
-      // mid-stream flush exists) and force a fresh initialize() next session.
+      // Barge-in or close: flush playback, then tear the engine down and force a
+      // fresh initialize() next session.
       flush_playback();
       mic_sub.current?.remove();
       mic_sub.current = null;
-      vol_sub.current?.remove();
-      vol_sub.current = null;
+      in_vol_sub.current?.remove();
+      in_vol_sub.current = null;
+      out_vol_sub.current?.remove();
+      out_vol_sub.current = null;
       init.current = null;
       try {
         tearDown();

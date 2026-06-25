@@ -85,13 +85,21 @@ export type voice_status = "idle" | "connecting" | "live" | "error";
 // is not installed. No audio is persisted; only transcript text is kept.
 export interface audio_io {
   // Begin microphone capture. on_chunk fires per base64 PCM chunk to send up.
-  // PCM (linear16) matches the server-side Deepgram uplink encoding.
-  start_capture(on_chunk: (pcm_base64: string) => void): Promise<void>;
+  // PCM (linear16) matches the server-side Deepgram uplink encoding. on_barge_in
+  // fires when the resident speaks over the assistant; the caller forwards it to
+  // the backend so it stops generating.
+  start_capture(
+    on_chunk: (pcm_base64: string) => void,
+    on_barge_in: () => void,
+  ): Promise<void>;
   // Stop microphone capture.
   stop_capture(): Promise<void>;
   // Enqueue one downstream audio unit (one sentence) for playback. Units are
   // raw PCM 16-bit mono at 16000 Hz, fed straight to the playback engine.
   play_chunk(audio_base64: string): void;
+  // Signal that a fresh response turn is starting, so playback stops suppressing
+  // the barged-out turn's tail and plays this one from the beginning.
+  begin_response(): void;
   // Stop and clear playback (e.g. on barge-in or close).
   stop_playback(): void;
 }
