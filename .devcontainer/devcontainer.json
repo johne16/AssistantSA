@@ -1,0 +1,20 @@
+{
+  "name": "AssistantSA",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20-bookworm",
+  "features": {
+    // Rust toolchain for the ap-voice sidecar
+    "ghcr.io/devcontainers/features/rust:1": {},
+    // Python for the crawl-service sidecar
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    }
+  },
+  // Install the redis-server binary; the backend server spawns it as a sidecar
+  "onCreateCommand": "sudo apt-get update && sudo apt-get install -y redis-server",
+  // Install every backend dependency: root npm workspaces, the crawl-service
+  // Python venv + crawl4ai assets, and the ap-voice Rust build
+  "postCreateCommand": "npm install && python -m venv application-plane/backend/crawl-service/.venv && application-plane/backend/crawl-service/.venv/bin/pip install -r application-plane/backend/crawl-service/requirements.txt && application-plane/backend/crawl-service/.venv/bin/crawl4ai-setup && cargo build --release --manifest-path application-plane/backend/ap-voice/Cargo.toml",
+  // Gateway and Metro ports
+  "forwardPorts": [8080, 8081],
+  "remoteUser": "node"
+}

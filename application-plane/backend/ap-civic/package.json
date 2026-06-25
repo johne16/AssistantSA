@@ -1,0 +1,18 @@
+{
+  "name": "ap-civic",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AssistantSA application-plane Civic Services: serves residents service status/alerts, events, and find-my-rep derived from city-published content, hands out per-site automation scripts on demand for 311/permit/form/fee_balance, reads city external systems, and pushes service alerts via SNS, holding no 311, fee, or fine data.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "jose": "^6.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "~5.8.3"
+  }
+}

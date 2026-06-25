@@ -1,0 +1,9 @@
+{
+  "name": "assistantsa",
+  "private": true,
+  "workspaces": ["application-plane/backend/ap-*"],
+  "scripts": {
+    "build": "npm run build -w ap-civic -w ap-utility -w ap-assistant -w ap-notifications && npm run build -w ap-server",
+    "start": "node application-plane/backend/ap-server/dist/index.js"
+  }
+}

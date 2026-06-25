@@ -1,0 +1,30 @@
+{
+  "name": "ap-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AssistantSA application-plane Backend Host: composition root that constructs each module with concrete port adapters, exposes the REST gateway and voice WebSocket surface, runs the scheduler, verifies the tenant_context_token at the edge, and loads config and secrets from the environment.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0",
+    "ap-assistant": "*",
+    "ap-civic": "*",
+    "ap-notifications": "*",
+    "ap-utility": "*",
+    "express": "^5.1.0",
+    "ioredis": "^5.4.2",
+    "jose": "^6.1.0",
+    "pg": "^8.13.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/ws": "^8.5.13",
+    "typescript": "~5.8.3"
+  }
+}

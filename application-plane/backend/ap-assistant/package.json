@@ -1,0 +1,22 @@
+{
+  "name": "ap-assistant",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AssistantSA application-plane Assistant service: the AssistantSA LLM chat and voice core plus a task agent across the city APIs. Routes tasks by Claude tool-use over a plug-and-play tool registry, confirms before form-submitting actions, and reaches Claude only through an injected llm_port. Reads no per-city database directly; acts through the application services.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "ioredis": "^5.4.2",
+    "jose": "^6.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "typescript": "~5.8.3"
+  }
+}

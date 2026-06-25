@@ -1,0 +1,107 @@
+import type { task_tool } from "../types.js";
+
+// Seed task tools. Tool ids are the contract; descriptions are when-to-use guidance.
+// All requires_confirmation are false (no current seed tool submits a form).
+export const seed_tools: task_tool[] = [
+  {
+    tool_definition: {
+      name: "check_collection_schedule",
+      description:
+        "Use when the resident asks when trash, recycling, or yard-waste collection happens. Defaults to the resident's saved address; only pass address to override it.",
+      input_schema: {
+        type: "object",
+        properties: {
+          address: { type: "string", description: "Optional address to override the saved one." },
+        },
+        required: [],
+      },
+    },
+    downstream: "ap-civic",
+    operation: "check_collection_schedule",
+    requires_confirmation: false,
+  },
+  {
+    tool_definition: {
+      name: "check_power_status",
+      description:
+        "Use when the resident asks about power, outages, or whether their electricity service is on. Resolves to the resident's saved address automatically; no input is needed.",
+      input_schema: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+    downstream: "ap-utility",
+    operation: "check_power_status",
+    requires_confirmation: false,
+  },
+  {
+    tool_definition: {
+      name: "check_city_alerts",
+      description:
+        "Use when the resident asks about active city alerts, advisories, or emergency notices.",
+      input_schema: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+    downstream: "ap-civic",
+    operation: "check_city_alerts",
+    requires_confirmation: false,
+  },
+  {
+    tool_definition: {
+      name: "read_utility_bill",
+      description:
+        "Use when the resident asks about their utility bill, balance due, or recent usage.",
+      input_schema: {
+        type: "object",
+        properties: {
+          account_id: { type: "string", description: "Utility account identifier." },
+        },
+        required: [],
+      },
+    },
+    downstream: "ap-utility",
+    operation: "read_utility_bill",
+    requires_confirmation: false,
+  },
+  {
+    tool_definition: {
+      name: "check_city_events",
+      description:
+        "Use when the resident asks about upcoming city events, meetings, or community activities.",
+      input_schema: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+    downstream: "ap-civic",
+    operation: "check_city_events",
+    requires_confirmation: false,
+  },
+  {
+    tool_definition: {
+      name: "find_my_area",
+      description:
+        "Use when the resident asks which police, fire, school, or neighborhood service area they belong to. Defaults to the resident's saved address; only pass address to override it.",
+      input_schema: {
+        type: "object",
+        properties: {
+          address: { type: "string", description: "Optional address to override the saved one." },
+          kind: {
+            type: "string",
+            enum: ["police", "fire", "school", "neighborhood"],
+            description: "Which service area to resolve.",
+          },
+        },
+        required: ["kind"],
+      },
+    },
+    downstream: "ap-civic",
+    operation: "find_my_area",
+    requires_confirmation: false,
+  },
+];

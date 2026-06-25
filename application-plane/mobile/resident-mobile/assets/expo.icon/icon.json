@@ -1,0 +1,18 @@
+{
+  "fill": {
+    "solid": "srgb:0.12157,0.37255,0.74902,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "foreground",
+          "name": "Foreground"
+        }
+      ]
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

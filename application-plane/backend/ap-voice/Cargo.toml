@@ -1,0 +1,21 @@
+[package]
+name = "ap-voice"
+version = "0.2.0"
+edition = "2021"
+
+[lib]
+name = "ap_voice"
+
+[[bin]]
+name = "ap-voice"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+thiserror = "2"
