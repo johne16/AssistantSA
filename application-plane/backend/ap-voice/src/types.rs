@@ -1,7 +1,8 @@
 //! All ap-voice type definitions. No types live outside this file.
 
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hasher};
 use std::time::Duration;
 use thiserror::Error;
 
@@ -268,7 +269,7 @@ impl LatencyTracker {
 /// Session-scoped filler phrase pool. Phrases vary within a session (no repeat)
 /// and match tone.
 pub struct FillerPool {
-    queue: VecDeque<String>,
+    phrases: Vec<String>,
 }
 
 impl FillerPool {
@@ -284,12 +285,17 @@ impl FillerPool {
             ]
         };
         Self {
-            queue: phrases.into_iter().map(String::from).collect(),
+            phrases: phrases.into_iter().map(String::from).collect(),
         }
     }
 
-    /// Next non-repeating filler, or None once exhausted for the session.
+    /// Random filler with no recency bias, or None if the pool is empty.
     pub fn next(&mut self) -> Option<String> {
-        self.queue.pop_front()
+        if self.phrases.is_empty() {
+            return None;
+        }
+        let seed = RandomState::new().build_hasher().finish();
+        let idx = (seed % self.phrases.len() as u64) as usize;
+        Some(self.phrases[idx].clone())
     }
 }

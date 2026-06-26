@@ -578,10 +578,6 @@ fn spawn_filler(
         }
         let mut pool = FillerPool::new(false);
         let Some(phrase) = pool.next() else { return };
-        // Filler text for the chat thread.
-        let _ = sink
-            .send(ResponseEvent::AssistantTranscript(phrase.clone()))
-            .await;
         // Synthesize the filler to MP3 and stream it, masking think-time with
         // real audio. Provider failure here is swallowed: the filler is
         // best-effort and must never abort the real turn.
