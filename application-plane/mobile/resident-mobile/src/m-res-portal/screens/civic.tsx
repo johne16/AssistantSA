@@ -15,7 +15,7 @@ import type {
   my_area_kind,
 } from "@/m-res-civic";
 import { Screen } from "../components/chrome";
-import { BackLink, Card, KeyValue, Note, Row, SectionHeader } from "../components/ui";
+import { BackLink, Card, KeyValue, Row, SectionHeader } from "../components/ui";
 import { use_t } from "@/m-res-shell";
 import type { panel_id } from "../types";
 
@@ -81,7 +81,7 @@ export function CivicEventsScreen(props: {
         <Card key={e.entry_id} title={e.title} hint={e.description}>
           <KeyValue
             pairs={[
-              { k: tr("When"), v: e.starts_at },
+              { k: tr("When"), v: e.when_display },
               { k: tr("Where"), v: e.location },
             ]}
           />
@@ -200,13 +200,11 @@ export function FindRepScreen(props: {
   );
 }
 
-// Shared my_area leaf for police / school / neighborhood.
+// Shared my_area leaf for school / neighborhood.
 const MY_AREA_META: Record<
   my_area_kind,
   { back: string; eyebrow: string; title: string }
 > = {
-  police: { back: "My area", eyebrow: "SAPD", title: "Police substation" },
-  fire: { back: "My area", eyebrow: "SAFD", title: "Fire response area" },
   school: { back: "My area", eyebrow: "Schools", title: "School district" },
   neighborhood: {
     back: "My area",
@@ -227,6 +225,7 @@ export function MyAreaLeafScreen(props: {
   useEffect(() => {
     if (!props.address) return;
     let live = true;
+    // Immediate stored result; resolves fast, rendered without a spinner gate.
     props.civic
       .civic_view_request({
         resource: "my_area",
@@ -235,8 +234,17 @@ export function MyAreaLeafScreen(props: {
       .then((res) => {
         if (live) set_data(res.data as my_area_entry | null);
       });
+    // Background-refreshed result replaces the view in place. Guard on resource
+    // and kind so a push for another my_area leaf does not land here.
+    const off = props.civic.on_rep_update((res) => {
+      if (!live || res.resource !== "my_area") return;
+      const entry = res.data as my_area_entry | null;
+      if (entry && entry.kind !== props.kind) return;
+      set_data(entry);
+    });
     return () => {
       live = false;
+      off();
     };
   }, [props.civic, props.address, props.kind]);
   return (
@@ -252,11 +260,10 @@ export function MyAreaLeafScreen(props: {
         }
       />
       {data ? (
-        <Card title={data.name} hint={data.detail}>
-          <KeyValue pairs={[{ k: tr("Boundary"), v: data.boundary_layer }]} />
-          {props.kind === "police" ? (
-            <Note>{tr("For emergencies call 911.")}</Note>
-          ) : null}
+        <Card title={data.name}>
+          <KeyValue
+            pairs={(data.details ?? []).map((d) => ({ k: tr(d.label), v: d.value }))}
+          />
         </Card>
       ) : null}
     </Screen>
@@ -327,16 +334,6 @@ export function MyAreaHubScreen(props: {
         label={tr("Find my rep")}
         blurb={tr("Mayor, council member, and trustee")}
         onPress={() => props.select("find_rep")}
-      />
-      <Row
-        label={tr("Police substation")}
-        blurb={tr("SAPD patrol substation serving you")}
-        onPress={() => props.select("area_police")}
-      />
-      <Row
-        label={tr("Fire response area")}
-        blurb={tr("SAFD area of responsibility serving you")}
-        onPress={() => props.select("area_fire")}
       />
       <Row
         label={tr("School district")}

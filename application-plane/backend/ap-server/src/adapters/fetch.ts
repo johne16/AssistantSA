@@ -16,6 +16,14 @@ import type {
 } from "ap-civic";
 import type { outage_source_entry, utility_systems_reader } from "ap-utility";
 
+// Log any non-2xx HTTP response to the console. Callers still get the body/status
+// back; this only surfaces the failure so a blocked or moved source is visible.
+function log_http(label: string, url: string, status: number): void {
+  if (status < 200 || status >= 300) {
+    console.error(`[ap-server] ${label} non-2xx ${status}: ${url}`);
+  }
+}
+
 // Strip HTML tags to plain text. Fallback used only when the crawl4ai sidecar is
 // not reachable, since a raw GET cannot render JS-driven pages the way crawl4ai
 // does.
@@ -56,12 +64,15 @@ export function create_page_fetcher(crawl_service_url?: string): page_fetcher {
               fetched_at: json.fetched_at,
             };
           }
-        } catch {
+          log_http("page_fetcher crawl4ai", request.url, res.status);
+        } catch (err) {
           // Sidecar down; fall through to the raw-GET fallback below.
+          console.error(`[ap-server] page_fetcher crawl4ai unreachable: ${request.url}:`, err);
         }
       }
       const res = await fetch(request.url);
       const html = await res.text();
+      log_http("page_fetcher fallback", request.url, res.status);
       return {
         url: request.url,
         markdown: html_to_text(html),
@@ -79,6 +90,7 @@ export function create_gis_reader(geocode_url: string): gis_reader {
     async get(url: string): Promise<http_get_response> {
       const res = await fetch(url);
       const body = await res.text();
+      log_http("gis_reader.get", url, res.status);
       return { url, status: res.status, body };
     },
     async post(url: string, form: Record<string, string>): Promise<http_get_response> {
@@ -88,6 +100,7 @@ export function create_gis_reader(geocode_url: string): gis_reader {
         body: new URLSearchParams(form).toString(),
       });
       const body = await res.text();
+      log_http("gis_reader.post", url, res.status);
       return { url, status: res.status, body };
     },
     async query_point_in_polygon(
@@ -99,7 +112,9 @@ export function create_gis_reader(geocode_url: string): gis_reader {
         outFields: "location",
         f: "json",
       });
-      const geo_res = await fetch(`${geocode_url}/findAddressCandidates?${geo_params.toString()}`);
+      const geo_url = `${geocode_url}/findAddressCandidates?${geo_params.toString()}`;
+      const geo_res = await fetch(geo_url);
+      log_http("gis_reader.query geocode", geo_url, geo_res.status);
       const geo_json = (await geo_res.json()) as {
         candidates?: Array<{ location?: { x: number; y: number } }>;
       };
@@ -117,7 +132,9 @@ export function create_gis_reader(geocode_url: string): gis_reader {
         returnGeometry: "false",
         f: "json",
       });
-      const res = await fetch(`${request.url}/query?${params.toString()}`);
+      const query_url = `${request.url}/query?${params.toString()}`;
+      const res = await fetch(query_url);
+      log_http("gis_reader.query layer", query_url, res.status);
       const json = (await res.json()) as {
         features?: Array<{ attributes?: Record<string, unknown> }>;
       };
@@ -151,6 +168,7 @@ export function create_utility_systems_reader(): utility_systems_reader {
       if (!zip) return [];
       // currentState -> the current deployment's data path.
       const state_res = await fetch(source_url);
+      log_http("utility_systems.fetch_outages state", source_url, state_res.status);
       if (!state_res.ok) return [];
       const state = (await state_res.json()) as {
         data?: { interval_generation_data?: string };
@@ -159,7 +177,9 @@ export function create_utility_systems_reader(): utility_systems_reader {
       if (!base) return [];
       // ZIP-aggregated outage file under that deployment.
       const origin = new URL(source_url).origin;
-      const data_res = await fetch(`${origin}/${base}/public/thematic-7/thematic_areas.json`);
+      const data_url = `${origin}/${base}/public/thematic-7/thematic_areas.json`;
+      const data_res = await fetch(data_url);
+      log_http("utility_systems.fetch_outages data", data_url, data_res.status);
       if (!data_res.ok) return [];
       const json = (await data_res.json()) as { file_data?: kubra_thematic_entry[] };
       return (json.file_data ?? [])

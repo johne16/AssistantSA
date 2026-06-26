@@ -48,9 +48,8 @@ export interface server_config {
 
   // ap-civic
   find_my_rep_gis_url: string;
-  my_area_police_url: string;
-  my_area_fire_url: string;
   my_area_neighborhood_url: string;
+  my_area_school_url: string;
   geocode_url: string;
   council_staff_source_url: string;
   collection_schedule_source_url: string;
@@ -60,7 +59,7 @@ export interface server_config {
   alerts_retention_days: number;
   events_retention_days: number;
   collection_schedule_refresh_days: number;
-  find_my_rep_refresh_days: number;
+  my_area_refresh_days: number;
 
   // ap-utility
   utility_retention_days: number;

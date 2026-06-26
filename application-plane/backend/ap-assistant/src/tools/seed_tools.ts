@@ -86,14 +86,14 @@ export const seed_tools: task_tool[] = [
     tool_definition: {
       name: "find_my_area",
       description:
-        "Use when the resident asks which police, fire, school, or neighborhood service area they belong to. Defaults to the resident's saved address; only pass address to override it.",
+        "Use when the resident asks which school or neighborhood service area they belong to. Defaults to the resident's saved address; only pass address to override it.",
       input_schema: {
         type: "object",
         properties: {
           address: { type: "string", description: "Optional address to override the saved one." },
           kind: {
             type: "string",
-            enum: ["police", "fire", "school", "neighborhood"],
+            enum: ["school", "neighborhood"],
             description: "Which service area to resolve.",
           },
         },

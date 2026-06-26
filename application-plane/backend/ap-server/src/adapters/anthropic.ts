@@ -72,7 +72,8 @@ export function create_anthropic_llm(
         let input: Record<string, unknown> = {};
         try {
           input = tb.json ? (JSON.parse(tb.json) as Record<string, unknown>) : {};
-        } catch {
+        } catch (err) {
+          console.error(`[ap-server] anthropic tool_use input JSON parse failed for ${tb.name}:`, err);
           input = {};
         }
         yield { type: "tool_use", tool_name: tb.name, input };

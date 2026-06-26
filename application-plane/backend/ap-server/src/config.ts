@@ -38,7 +38,8 @@ function parse_scrape_script_registry(raw: string): scrape_script_registry {
     try {
         const parsed = JSON.parse(raw) as scrape_script_registry;
         return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
+    } catch (err) {
+        console.error("[ap-server] scrape_script_registry JSON parse failed:", err);
         return {};
     }
 }
@@ -77,7 +78,8 @@ function read_public_key(): string {
     const key_path = resolve_path(here, "../../keys/public.pem");
     try {
         return readFileSync(key_path, "utf8");
-    } catch {
+    } catch (err) {
+        console.error(`[ap-server] public key read failed at ${key_path}:`, err);
         return "";
     }
 }
@@ -116,9 +118,8 @@ export function load_config(): server_config {
         redis_cmd: env_str("redis_cmd", default_redis_cmd()),
 
         find_my_rep_gis_url: env_str("find_my_rep_gis_url"),
-        my_area_police_url: env_str("my_area_police_url"),
-        my_area_fire_url: env_str("my_area_fire_url"),
         my_area_neighborhood_url: env_str("my_area_neighborhood_url"),
+        my_area_school_url: env_str("my_area_school_url"),
         geocode_url: env_str("geocode_url", "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"),
         council_staff_source_url: env_str("council_staff_source_url"),
         collection_schedule_source_url: env_str("collection_schedule_source_url"),
@@ -128,7 +129,7 @@ export function load_config(): server_config {
         alerts_retention_days: env_num("alerts_retention_days", 30),
         events_retention_days: env_num("events_retention_days", 30),
         collection_schedule_refresh_days: env_num("collection_schedule_refresh_days", 30),
-        find_my_rep_refresh_days: env_num("find_my_rep_refresh_days", 180),
+        my_area_refresh_days: env_num("my_area_refresh_days", 180),
 
         utility_retention_days: env_num("utility_retention_days", 30),
         power_outage_source_url: env_str("power_outage_source_url"),

@@ -61,6 +61,7 @@ export class dispatcher {
         params,
       });
     } catch (err) {
+      console.error(`[ap-assistant] tool ${tool.operation} (${tool.downstream}) failed:`, err);
       return {
         operation: tool.operation,
         result: { error: err instanceof Error ? err.message : "tool_failed" },

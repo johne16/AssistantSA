@@ -131,10 +131,6 @@ export function BillsScreen(props: {
           </Card>
         ))
       )}
-      <BlockedNotice
-        title={tr("Paying bills in AssistantSA is blocked pending an external dependency.")}
-        body={tr("AssistantSA reads your bill, but can't pay it yet. Paying needs the utility's own payment flow or their opt-in. For now, open your provider's site to pay.")}
-      />
     </Screen>
   );
 }

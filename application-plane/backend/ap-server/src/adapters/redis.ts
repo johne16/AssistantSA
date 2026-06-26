@@ -19,7 +19,8 @@ export function create_session_store(redis_url: string): session_store {
       if (!raw) return [];
       try {
         return JSON.parse(raw) as llm_message[];
-      } catch {
+      } catch (err) {
+        console.error(`[ap-server] session_store.load JSON parse failed for ${session_id}:`, err);
         return [];
       }
     },

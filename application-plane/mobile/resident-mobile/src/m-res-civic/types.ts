@@ -23,7 +23,7 @@ export type civic_resource =
   | "find_my_rep"
   | "my_area";
 
-export type my_area_kind = "police" | "fire" | "school" | "neighborhood";
+export type my_area_kind = "school" | "neighborhood";
 
 // ---------------------------------------------------------------------------
 // Civic data shapes. Mirror of ap-civic stored shapes.
@@ -45,6 +45,7 @@ export interface event_entry {
   description: string;
   location: string;
   starts_at: string;
+  when_display: string;
   ends_at: string | null;
   url: string | null;
   fetched_at: string;
@@ -76,11 +77,16 @@ export interface find_my_rep_entry {
   resolved_at: string;
 }
 
+export interface my_area_detail {
+  label: string;
+  value: string;
+}
+
 export interface my_area_entry {
   address: string;
   kind: my_area_kind;
   name: string;
-  detail: string;
+  details: my_area_detail[];
   boundary_layer: string;
   resolved_at: string;
 }

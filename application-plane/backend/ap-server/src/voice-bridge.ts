@@ -54,7 +54,8 @@ export function create_voice_bridge(deps: voice_bridge_deps): {
           const open = JSON.parse(text) as { tenant_context_token?: string };
           if (!open.tenant_context_token) throw new Error("missing_token");
           await deps.token_verifier.verify(open.tenant_context_token);
-        } catch {
+        } catch (err) {
+          console.error("[ap-server] voice-bridge authorization failed:", err);
           client.send(JSON.stringify({ kind: "error", error: "unauthorized" }));
           close_both();
           return;

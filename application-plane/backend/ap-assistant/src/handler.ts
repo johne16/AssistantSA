@@ -78,8 +78,10 @@ class handler_impl implements assistant_handler {
         socket.send(JSON.stringify(chunk));
       }
       socket.send(JSON.stringify({ type: "done" }));
-    } catch {
-      // Token verification failure or stream error: do not leak detail.
+    } catch (err) {
+      // Token verification failure or stream error: log server-side, but do not
+      // leak detail to the client.
+      console.error("[ap-assistant] voice stream failed:", err);
       socket.send(JSON.stringify({ type: "error", error: "unauthorized" }));
     }
   }

@@ -24,7 +24,7 @@ export type civic_resource =
 
 export type notify_request_type = "emergency_alert" | "event_reminder";
 
-export type my_area_kind = "police" | "fire" | "school" | "neighborhood";
+export type my_area_kind = "school" | "neighborhood";
 
 export type fetch_source = "collection_schedule" | "city_alerts" | "city_events";
 
@@ -49,7 +49,8 @@ export interface event_entry {
   title: string;
   description: string;
   location: string;
-  starts_at: string; // ISO 8601
+  starts_at: string; // ISO 8601, canonical instant used for sorting
+  when_display: string; // human-readable date from the source listing
   ends_at: string | null;
   url: string | null;
   fetched_at: string;
@@ -84,13 +85,20 @@ export interface find_my_rep_entry {
   resolved_at: string; // ISO 8601, last (re-)resolution time
 }
 
-// A resolved my-area record (police substation, school district, or
-// neighborhood association). Resolved, stored, and refreshed like find_my_rep.
+// One resolved attribute shown on a my-area card: a display label and its value.
+export interface my_area_detail {
+  label: string;
+  value: string;
+}
+
+// A resolved my-area record (school district or neighborhood association).
+// Resolved, stored, and refreshed like find_my_rep. details holds every
+// resident-facing attribute pulled from the source layer, in display order.
 export interface my_area_entry {
   address: string;
   kind: my_area_kind;
   name: string;
-  detail: string;
+  details: my_area_detail[];
   boundary_layer: string;
   resolved_at: string;
 }
@@ -186,9 +194,8 @@ export interface notify_request {
 export interface civic_config {
   token_verification_public_key: string;
   find_my_rep_gis_url: string;
-  my_area_police_url: string;
-  my_area_fire_url: string;
   my_area_neighborhood_url: string;
+  my_area_school_url: string;
   council_staff_source_url: string;
   collection_schedule_source_url: string;
   city_alerts_source_url: string;
@@ -197,7 +204,7 @@ export interface civic_config {
   alerts_retention_days: number; // default 30
   events_retention_days: number; // default 30
   collection_schedule_refresh_days: number; // default 30
-  find_my_rep_refresh_days: number; // default 180
+  my_area_refresh_days: number; // default 180
 }
 
 // ---------------------------------------------------------------------------

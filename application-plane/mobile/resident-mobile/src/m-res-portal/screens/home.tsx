@@ -185,9 +185,9 @@ export function HomeScreen(props: {
         {tr("Jump to")}
       </Text>
       <Row label={tr("Power status")} blurb={tr("Utility")} onPress={() => props.select("power_status")} />
-      <Row label={tr("Report a problem")} blurb={tr("City · 311")} onPress={() => props.select("three_one_one")} />
+      <Row label={tr("Report a problem")} blurb={tr("City · 311")} tag={tr("Unavailable")} onPress={() => props.select("three_one_one")} />
       <Row label={tr("Bills & usage")} blurb={tr("Utility")} onPress={() => props.select("utility_hub")} />
-      <Row label={tr("Local businesses")} blurb={tr("Discover")} onPress={() => props.select("discovery")} />
+      <Row label={tr("Local businesses")} blurb={tr("Discover")} tag={tr("Unavailable")} onPress={() => props.select("discovery")} />
       <Row label={tr("My area")} blurb={tr("City")} onPress={() => props.select("my_area")} />
       <Row label={tr("Profile & settings")} blurb={tr("You")} onPress={() => props.select("profile")} />
     </Screen>

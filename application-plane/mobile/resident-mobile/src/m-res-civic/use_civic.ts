@@ -7,17 +7,18 @@ import type {
   civic_rep_update_listener,
   civic_view_request,
   find_my_rep_entry,
+  my_area_entry,
 } from "./types";
 
 // use_civic exposes the fetch surface the portal calls. It reads the session
 // internally and forwards the tenant_context_token on every gateway call. It
 // does not render; the portal renders the returned civic_data.
 //
-// find_my_rep is stale-while-revalidate: the gateway returns the stored result
-// at once so the portal renders without a blocking spinner. The hook then runs
-// a background refresh and, when ap-civic surfaces changed rep data, pushes the
-// updated response to the registered listener so the portal replaces its view
-// in place.
+// find_my_rep and every my_area kind are stale-while-revalidate: the gateway
+// returns the stored result at once so the portal renders without a blocking
+// spinner. The hook then runs a background refresh and, when ap-civic surfaces
+// changed data, pushes the updated response to the registered listener so the
+// portal replaces its view in place.
 
 function rep_changed(
   prev: find_my_rep_entry,
@@ -29,6 +30,38 @@ function rep_changed(
     prev.staff.length !== next.staff.length ||
     prev.boundary_layer !== next.boundary_layer
   );
+}
+
+function my_area_changed(
+  prev: my_area_entry,
+  next: my_area_entry,
+): boolean {
+  if (prev.name !== next.name || prev.details.length !== next.details.length) {
+    return true;
+  }
+  return prev.details.some(
+    (d, i) => d.label !== next.details[i]!.label || d.value !== next.details[i]!.value,
+  );
+}
+
+// True when the background re-read returned data that differs from what the
+// portal is currently showing, for either stale-while-revalidate resource.
+function read_changed(
+  stored: civic_read_response,
+  fresh: civic_read_response,
+): boolean {
+  if (fresh.stale_refreshed === true) return true;
+  if (fresh.resource === "find_my_rep") {
+    const a = stored.data as find_my_rep_entry | null;
+    const b = fresh.data as find_my_rep_entry | null;
+    return !!a && !!b && rep_changed(a, b);
+  }
+  if (fresh.resource === "my_area") {
+    const a = stored.data as my_area_entry | null;
+    const b = fresh.data as my_area_entry | null;
+    return !!a && !!b && my_area_changed(a, b);
+  }
+  return false;
 }
 
 export function use_civic(): civic_client {
@@ -47,18 +80,13 @@ export function use_civic(): civic_client {
     [],
   );
 
-  // Background re-resolve find_my_rep. If the gateway reports a refresh or the
-  // rep data changed, notify the listeners so the portal replaces its view.
-  const revalidate_rep = useCallback(
+  // Background re-read the resource. If the gateway reports a refresh or the
+  // data changed, notify the listeners so the portal replaces its view.
+  const revalidate = useCallback(
     async (req: civic_view_request, stored: civic_read_response) => {
       try {
         const fresh = await civic_api_request(tenant_context_token, req);
-        const stored_rep = stored.data as find_my_rep_entry | null;
-        const fresh_rep = fresh.data as find_my_rep_entry | null;
-        const changed =
-          fresh.stale_refreshed === true ||
-          (!!stored_rep && !!fresh_rep && rep_changed(stored_rep, fresh_rep));
-        if (changed) {
+        if (read_changed(stored, fresh)) {
           for (const listener of listeners.current) {
             listener(fresh);
           }
@@ -73,13 +101,13 @@ export function use_civic(): civic_client {
   const civic_view_request = useCallback(
     async (req: civic_view_request): Promise<civic_read_response> => {
       const response = await civic_api_request(tenant_context_token, req);
-      // Stale-while-revalidate only applies to find_my_rep.
-      if (req.resource === "find_my_rep") {
-        void revalidate_rep(req, response);
+      // Stale-while-revalidate applies to find_my_rep and every my_area kind.
+      if (req.resource === "find_my_rep" || req.resource === "my_area") {
+        void revalidate(req, response);
       }
       return response;
     },
-    [tenant_context_token, revalidate_rep],
+    [tenant_context_token, revalidate],
   );
 
   return useMemo<civic_client>(

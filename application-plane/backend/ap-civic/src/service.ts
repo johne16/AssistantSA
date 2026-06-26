@@ -14,6 +14,7 @@ import type {
   event_entry,
   fetch_source,
   find_my_rep_entry,
+  my_area_detail,
   my_area_entry,
   my_area_kind,
   notify_request_type,
@@ -90,7 +91,7 @@ export function create_civic_service(deps: civic_deps): civic_service {
       return { resource: "find_my_rep", data: resolved };
     }
 
-    if (is_stale(stored.resolved_at, config.find_my_rep_refresh_days)) {
+    if (is_stale(stored.resolved_at, config.my_area_refresh_days)) {
       // Background re-resolution; surface change if it differs.
       void revalidate_find_my_rep(tenant, address, stored);
     }
@@ -129,7 +130,7 @@ export function create_civic_service(deps: civic_deps): civic_service {
       return { resource: "my_area", data: resolved };
     }
 
-    if (is_stale(stored.resolved_at, config.find_my_rep_refresh_days)) {
+    if (is_stale(stored.resolved_at, config.my_area_refresh_days)) {
       void revalidate_my_area(tenant, address, kind, stored);
     }
     return { resource: "my_area", data: stored };
@@ -197,24 +198,41 @@ export function create_civic_service(deps: civic_deps): civic_service {
     }
   }
 
-  // Per-kind boundary layer and the attribute keys that hold the display name and
-  // detail. school has no source yet (feature on hold), so it resolves empty.
+  // Per-kind source: the layer url, the attribute holding the card title, and the
+  // attribute -> display label list for the detail rows, in display order.
   function my_area_source(
     kind: my_area_kind,
-  ): { url: string; name_field: string; detail_field: string } | null {
+  ): {
+    url: string;
+    name_field: string;
+    detail_fields: { field: string; label: string }[];
+  } | null {
     switch (kind) {
-      case "police":
-        return { url: config.my_area_police_url, name_field: "SUBSTN", detail_field: "Website" };
-      case "fire":
-        return { url: config.my_area_fire_url, name_field: "NAME", detail_field: "PlanningZones" };
       case "neighborhood":
         return {
           url: config.my_area_neighborhood_url,
           name_field: "Name",
-          detail_field: "AssociationType",
+          detail_fields: [
+            { field: "AssociationType", label: "Type" },
+            { field: "PrimaryContact", label: "Contact" },
+            { field: "PrimaryPhoneNumber", label: "Phone" },
+            { field: "PrimaryEmailAddress", label: "Email" },
+            { field: "PrimaryAddress", label: "Address" },
+            { field: "District", label: "Council district" },
+            { field: "MeetingDayAndTime", label: "Meets" },
+            { field: "MeetingLocation", label: "Meeting location" },
+            { field: "Website", label: "Website" },
+          ],
         };
       case "school":
-        return null;
+        return {
+          url: config.my_area_school_url,
+          name_field: "SDName",
+          detail_fields: [
+            { field: "SDCode", label: "District code" },
+            { field: "Website", label: "Website" },
+          ],
+        };
       default:
         return null;
     }
@@ -227,7 +245,7 @@ export function create_civic_service(deps: civic_deps): civic_service {
   ): Promise<my_area_entry> {
     const source = my_area_source(kind);
     let name = "";
-    let detail = "";
+    let details: my_area_detail[] = [];
     let boundary_layer: string = kind;
     if (source) {
       const result = await gis_reader.query_point_in_polygon({
@@ -235,14 +253,17 @@ export function create_civic_service(deps: civic_deps): civic_service {
         address,
       });
       name = str(result.attributes[source.name_field]);
-      detail = str(result.attributes[source.detail_field]);
+      // Drop fields the source left empty so the card shows only populated rows.
+      details = source.detail_fields
+        .map((f) => ({ label: f.label, value: str(result.attributes[f.field]) }))
+        .filter((d) => d.value !== "");
       boundary_layer = result.layer;
     }
     const entry: my_area_entry = {
       address,
       kind,
       name,
-      detail,
+      details,
       boundary_layer,
       resolved_at: clock.now().toISOString(),
     };
@@ -508,7 +529,10 @@ function parse_council_staff(html: string): council_staff_member[] {
 }
 
 function changed_my_area(a: my_area_entry, b: my_area_entry): boolean {
-  return a.name !== b.name || a.detail !== b.detail;
+  if (a.name !== b.name || a.details.length !== b.details.length) return true;
+  return a.details.some(
+    (d, i) => d.label !== b.details[i]!.label || d.value !== b.details[i]!.value,
+  );
 }
 
 function changed_collection_schedule(
@@ -613,7 +637,8 @@ function parse_alerts_nws(
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
-  } catch {
+  } catch (err) {
+    console.error("[ap-civic] parse_alerts_nws JSON parse failed:", err);
     return [];
   }
   const features = (parsed as { features?: unknown }).features;
@@ -676,6 +701,7 @@ function parse_events_html(
       description: description ? strip_html(description) : "",
       location: location ? strip_html(location) : "",
       starts_at: date ? to_iso(`${date[2]} ${date[1]}, ${date[3]}`) : "",
+      when_display: date ? `${strip_html(date[2]!)} ${strip_html(date[1]!)}, ${strip_html(date[3]!)}` : "",
       ends_at: null,
       url: absolute_url(href, base_url),
       fetched_at,
@@ -732,7 +758,8 @@ function parse_collection_schedule(
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
-  } catch {
+  } catch (err) {
+    console.error("[ap-civic] parse_collection_schedule JSON parse failed:", err);
     return [];
   }
   const first = Array.isArray(parsed) ? parsed[0] : undefined;

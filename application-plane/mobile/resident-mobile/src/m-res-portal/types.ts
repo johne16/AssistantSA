@@ -20,8 +20,6 @@ export type panel_id =
   | "agencies"
   | "my_area"
   | "find_rep"
-  | "area_police"
-  | "area_fire"
   | "area_school"
   | "area_neighborhood"
   | "three_one_one"
@@ -48,8 +46,6 @@ export const panel_tab: Record<panel_id, tab_id> = {
   agencies: "city",
   my_area: "city",
   find_rep: "city",
-  area_police: "city",
-  area_fire: "city",
   area_school: "city",
   area_neighborhood: "city",
   three_one_one: "city",

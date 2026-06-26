@@ -259,6 +259,7 @@ export function create_gateway(modules: gateway_modules): express.Express {
       }
       write_sse(res, "done", "{}");
     } catch (err) {
+      console.error("[ap-server] assistant SSE stream failed:", err);
       write_sse(res, "error", JSON.stringify({ message: message_of(err) }));
     } finally {
       res.end();

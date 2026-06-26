@@ -291,24 +291,6 @@ export function Portal() {
             onBack={() => set_panel("my_area")}
           />
         );
-      case "area_police":
-        return (
-          <MyAreaLeafScreen
-            civic={civic}
-            address={address}
-            kind="police"
-            onBack={() => set_panel("my_area")}
-          />
-        );
-      case "area_fire":
-        return (
-          <MyAreaLeafScreen
-            civic={civic}
-            address={address}
-            kind="fire"
-            onBack={() => set_panel("my_area")}
-          />
-        );
       case "area_school":
         return (
           <MyAreaLeafScreen
