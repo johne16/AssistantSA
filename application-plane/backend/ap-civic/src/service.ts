@@ -5,6 +5,7 @@
 
 import type {
   alert_entry,
+  alert_tier,
   civic_deps,
   civic_read_request,
   civic_read_response,
@@ -25,16 +26,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export function create_civic_service(deps: civic_deps): civic_service {
   const { config, store, data_reader, gis_reader, notifier, clock } = deps;
 
-  // Resolve the address for an address-scoped read: use the supplied address, or
-  // fall back to the resident's saved service address read through the host's
-  // data layer. Throws only if neither is available.
+  // Resolve the address for an address-scoped read from the resident's saved
+  // service address, read through the host's data layer. Address is never taken
+  // from the caller. Throws if none is saved.
   async function resolve_address(
     tenant: string,
     sub: string,
-    supplied: string | undefined,
     resource: string,
   ): Promise<string> {
-    if (supplied) return supplied;
     const saved = await data_reader.get_resident_address(tenant, sub);
     return require_address(saved ?? undefined, resource);
   }
@@ -60,15 +59,15 @@ export function create_civic_service(deps: civic_deps): civic_service {
         return { resource, data };
       }
       case "collection_schedule": {
-        const address = await resolve_address(tenant, sub, params.address, resource);
+        const address = await resolve_address(tenant, sub, resource);
         return read_collection_schedule(tenant, address);
       }
       case "find_my_rep": {
-        const address = await resolve_address(tenant, sub, params.address, resource);
+        const address = await resolve_address(tenant, sub, resource);
         return read_find_my_rep(tenant, address);
       }
       case "my_area": {
-        const address = await resolve_address(tenant, sub, params.address, resource);
+        const address = await resolve_address(tenant, sub, resource);
         const kind = require_kind(params.kind);
         return read_my_area(tenant, address, kind);
       }
@@ -602,6 +601,8 @@ function parse_alerts_html(
       title,
       body: "",
       source,
+      // AHAS city alerts are life-safety notices; tier them critical.
+      tier: "critical",
       effective_at: to_iso(timestamp),
       expires_at: null,
       fetched_at,
@@ -662,12 +663,28 @@ function parse_alerts_nws(
       title: str(props["headline"] ?? props["event"]),
       body: str(props["description"]),
       source,
+      tier: cap_severity_to_tier(str(props["severity"])),
       effective_at: str(props["effective"] ?? props["onset"] ?? props["sent"]),
       expires_at: str(props["expires"] ?? props["ends"]) || null,
       fetched_at,
     });
   }
   return entries;
+}
+
+// Map a CAP severity (NWS properties.severity) to a Feed tier.
+// Extreme/Severe are life-safety (critical); Moderate is act-soon (important);
+// Minor/Unknown/anything else is routine.
+function cap_severity_to_tier(severity: string): alert_tier {
+  switch (severity) {
+    case "Extreme":
+    case "Severe":
+      return "critical";
+    case "Moderate":
+      return "important";
+    default:
+      return "routine";
+  }
 }
 
 // sa.gov events listing. Each event is one <article>; the listing carries date

@@ -14,28 +14,33 @@ export type utility_resource = "bills" | "usage" | "outage";
 // Notification request type.
 export type notify_request_type = "bill_due" | "power_outage";
 
-// Stored bill record served in bills views.
+// Stored bill record served in bills views. recorded_at is stamped when the
+// record is stored to the DB (absent on the inbound client push).
 export interface bill_view {
   account_ref: string;
   due_date: string; // ISO date
   statement_id: string;
+  recorded_at?: string; // ISO timestamp the record was stored
 }
 
-// Stored usage record served in usage views.
+// Stored usage record served in usage views. recorded_at is stamped at store.
 export interface usage_view {
   account_ref: string;
   period_start: string; // ISO date
   period_end: string; // ISO date
   amount: number;
   unit: string;
+  recorded_at?: string; // ISO timestamp the record was stored
 }
 
-// Stored power outage record served in outage views.
+// Stored power outage record served in outage views. recorded_at is stamped at
+// store; reported_at is the source's own report time.
 export interface outage_view {
   address: string;
   status: string;
   reported_at: string; // ISO timestamp
   outage_id: string;
+  recorded_at?: string; // ISO timestamp the record was stored
 }
 
 // Client push payload: bills + usage scraped on device.

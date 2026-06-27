@@ -43,7 +43,7 @@ crawl4ai-setup
 
 ### Environment
 
-- Copy `.env.example` to `.env` and source `san-antonio.env`.
+- Copy `.env.example` to `.env`.
 
 ### resident-mobile base deps
 

@@ -30,6 +30,20 @@ import type {
   usage_view,
   utility_store,
 } from "ap-utility";
+import type {
+  reminder_due,
+  reminder_entry,
+  reminder_status,
+  reminders_store,
+} from "ap-reminders";
+import type {
+  notification_preferences,
+  notification_registration_record,
+  notification_type,
+  notifications_store,
+  pending_delivery,
+  pending_notifications_store,
+} from "ap-notifications";
 
 // Create the shared pool. Returns null when no database_url is configured.
 export function create_pool(database_url: string): Pool | null {
@@ -100,6 +114,29 @@ async function ensure_schema(pool: Pool, schema: string): Promise<void> {
     provider text NOT NULL,
     sign_in_url text NOT NULL,
     PRIMARY KEY (sub, site_id)
+  )`);
+  // reminders table
+  await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.reminders_reminder (
+    sub text NOT NULL,
+    reminder_id text NOT NULL,
+    scheduled_at timestamptz NOT NULL,
+    title text NOT NULL,
+    body text NOT NULL,
+    status text NOT NULL,
+    delivered_at timestamptz,
+    PRIMARY KEY (sub, reminder_id)
+  )`);
+  // notifications tables
+  await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.notifications_registration (
+    sub text PRIMARY KEY,
+    notification_preferences jsonb NOT NULL
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.notifications_pending (
+    id bigserial PRIMARY KEY,
+    sub text NOT NULL,
+    type text NOT NULL,
+    notification jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
   )`);
   bootstrapped.add(schema);
 }
@@ -379,3 +416,150 @@ export function create_utility_store(pool: Pool): utility_store {
   };
 }
 
+// --- reminders store ---
+
+// Map a reminders_reminder row to a reminder_entry. timestamptz columns come back
+// as Date; normalize to ISO strings the module contract expects.
+function reminder_from_row(row: {
+  reminder_id: string;
+  scheduled_at: Date;
+  title: string;
+  body: string;
+  status: string;
+  delivered_at: Date | null;
+}): reminder_entry {
+  return {
+    reminder_id: row.reminder_id,
+    scheduled_at: row.scheduled_at.toISOString(),
+    title: row.title,
+    body: row.body,
+    status: row.status as reminder_status,
+    delivered_at: row.delivered_at ? row.delivered_at.toISOString() : null,
+  };
+}
+
+export function create_reminders_store(pool: Pool): reminders_store {
+  return {
+    async create_reminder(city_tenant_id, sub, entry: reminder_entry) {
+      const s = await scoped(pool, city_tenant_id);
+      await pool.query(
+        `INSERT INTO ${s}.reminders_reminder
+           (sub, reminder_id, scheduled_at, title, body, status, delivered_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (sub, reminder_id) DO UPDATE SET
+           scheduled_at = EXCLUDED.scheduled_at,
+           title = EXCLUDED.title,
+           body = EXCLUDED.body,
+           status = EXCLUDED.status,
+           delivered_at = EXCLUDED.delivered_at`,
+        [
+          sub,
+          entry.reminder_id,
+          entry.scheduled_at,
+          entry.title,
+          entry.body,
+          entry.status,
+          entry.delivered_at,
+        ],
+      );
+    },
+    async list_reminders(city_tenant_id, sub): Promise<reminder_entry[]> {
+      const s = await scoped(pool, city_tenant_id);
+      const r = await pool.query(
+        `SELECT reminder_id, scheduled_at, title, body, status, delivered_at
+         FROM ${s}.reminders_reminder WHERE sub = $1 ORDER BY scheduled_at`,
+        [sub],
+      );
+      return r.rows.map(reminder_from_row);
+    },
+    async set_status(city_tenant_id, sub, reminder_id, status, delivered_at) {
+      const s = await scoped(pool, city_tenant_id);
+      await pool.query(
+        `UPDATE ${s}.reminders_reminder
+         SET status = $3, delivered_at = $4
+         WHERE sub = $1 AND reminder_id = $2`,
+        [sub, reminder_id, status, delivered_at],
+      );
+    },
+    async list_due(city_tenant_id, before_iso): Promise<reminder_due[]> {
+      const s = await scoped(pool, city_tenant_id);
+      const r = await pool.query(
+        `SELECT sub, reminder_id, scheduled_at, title, body, status, delivered_at
+         FROM ${s}.reminders_reminder
+         WHERE status = 'upcoming' AND scheduled_at <= $1`,
+        [before_iso],
+      );
+      return r.rows.map((row) => ({
+        sub: row.sub as string,
+        entry: reminder_from_row(row),
+      }));
+    },
+    async list_tenants() {
+      return [...bootstrapped].map((s) => s.replace(/^tenant_/, ""));
+    },
+  };
+}
+
+// --- notifications stores ---
+
+export function create_notifications_store(pool: Pool): notifications_store {
+  return {
+    async upsert_registration(city_tenant_id, record: notification_registration_record) {
+      const s = await scoped(pool, city_tenant_id);
+      await pool.query(
+        `INSERT INTO ${s}.notifications_registration (sub, notification_preferences)
+         VALUES ($1, $2)
+         ON CONFLICT (sub) DO UPDATE SET notification_preferences = EXCLUDED.notification_preferences`,
+        [record.sub, JSON.stringify(record.notification_preferences)],
+      );
+    },
+    async get_registration(city_tenant_id, sub): Promise<notification_registration_record | null> {
+      const s = await scoped(pool, city_tenant_id);
+      const r = await pool.query(
+        `SELECT sub, notification_preferences FROM ${s}.notifications_registration WHERE sub = $1`,
+        [sub],
+      );
+      const row = r.rows[0];
+      if (!row) return null;
+      return {
+        sub: row.sub as string,
+        notification_preferences: row.notification_preferences as notification_preferences,
+      };
+    },
+    async list_registrations(city_tenant_id): Promise<notification_registration_record[]> {
+      const s = await scoped(pool, city_tenant_id);
+      const r = await pool.query(
+        `SELECT sub, notification_preferences FROM ${s}.notifications_registration`,
+      );
+      return r.rows.map((row) => ({
+        sub: row.sub as string,
+        notification_preferences: row.notification_preferences as notification_preferences,
+      }));
+    },
+  };
+}
+
+export function create_pending_notifications_store(pool: Pool): pending_notifications_store {
+  return {
+    async enqueue(city_tenant_id, sub, delivery: pending_delivery) {
+      const s = await scoped(pool, city_tenant_id);
+      await pool.query(
+        `INSERT INTO ${s}.notifications_pending (sub, type, notification)
+         VALUES ($1, $2, $3)`,
+        [sub, delivery.type, JSON.stringify(delivery.notification)],
+      );
+    },
+    async drain(city_tenant_id, sub): Promise<pending_delivery[]> {
+      const s = await scoped(pool, city_tenant_id);
+      // Delete-and-return so each queued notification is delivered once.
+      const r = await pool.query(
+        `DELETE FROM ${s}.notifications_pending WHERE sub = $1 RETURNING type, notification`,
+        [sub],
+      );
+      return r.rows.map((row) => ({
+        type: row.type as notification_type,
+        notification: row.notification as pending_delivery["notification"],
+      }));
+    },
+  };
+}

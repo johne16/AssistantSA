@@ -1,9 +1,10 @@
-// Loads the whole-process config from process.env. .env is loaded into the
-// environment by the deployment (gitignored); this module only reads env vars.
+// Loads the whole-process config from process.env. A gitignored .env at the
+// process working directory is loaded programmatically at startup when present;
+// deployments that inject env vars directly (no .env file) skip the load.
 // Non-secret numeric keys get sane defaults; secrets and source URLs are read
 // as-is. Names match .env.example verbatim.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve as resolve_path } from "node:path";
 
@@ -32,16 +33,36 @@ function env_num(key: string, fallback: number): number {
     return Number.isFinite(n) ? n : fallback;
 }
 
-// Parse the scrape_script_registry JSON env var. Invalid/empty -> {}.
-function parse_scrape_script_registry(raw: string): scrape_script_registry {
-    if (!raw) return {};
+// Build the scrape script registry from files. Each site is one file at
+// ap-utility/scrape_scripts/<site_id>.js; the site_id is the file's base name.
+// The login url is declared inside the file as a `// @url <url>` header line.
+// Files with no @url header are skipped. No env var feeds this.
+function build_scrape_script_registry(): scrape_script_registry {
+    // ap-utility/scrape_scripts relative to this file (ap-server/dist).
+    const here = dirname(fileURLToPath(import.meta.url));
+    const scripts_dir = resolve_path(here, "../../ap-utility/scrape_scripts");
+
+    let files: string[];
     try {
-        const parsed = JSON.parse(raw) as scrape_script_registry;
-        return parsed && typeof parsed === "object" ? parsed : {};
+        files = readdirSync(scripts_dir).filter((f) => f.endsWith(".js"));
     } catch (err) {
-        console.error("[ap-server] scrape_script_registry JSON parse failed:", err);
+        console.error(`[ap-server] scrape_scripts dir read failed at ${scripts_dir}:`, err);
         return {};
     }
+
+    const registry: scrape_script_registry = {};
+    for (const file of files) {
+        const site_id = file.slice(0, -3);
+        const script_path = resolve_path(scripts_dir, file);
+        const script = readFileSync(script_path, "utf8");
+        const match = script.match(/^\/\/\s*@url\s+(\S+)/m);
+        if (!match) {
+            console.error(`[ap-server] scrape script ${file} missing // @url header; skipped`);
+            continue;
+        }
+        registry[site_id] = { url: match[1] ?? "", script };
+    }
+    return registry;
 }
 
 // Scheduler intervals are configured in minutes as float values; convert each to
@@ -85,6 +106,14 @@ function read_public_key(): string {
 }
 
 export function load_config(): server_config {
+    // Load a repo-root .env into process.env when present. The server runs from
+    // the repo root, so the file sits at the process working directory. Skipped
+    // when absent (deployments inject env vars directly).
+    const env_file_path = resolve_path(process.cwd(), ".env");
+    if (existsSync(env_file_path)) {
+        process.loadEnvFile(env_file_path);
+    }
+
     const scheduler_intervals_value: scheduler_intervals = {
         collection_schedule_interval_ms: minutes_to_ms(
             env_num("scheduler_collection_schedule_interval_minutes", 4320),
@@ -100,6 +129,9 @@ export function load_config(): server_config {
         ),
         bill_reminder_interval_ms: minutes_to_ms(
             env_num("scheduler_bill_reminder_interval_minutes", 1440),
+        ),
+        reminder_eval_interval_ms: minutes_to_ms(
+            env_num("scheduler_reminder_eval_interval_minutes", 1),
         ),
     };
 
@@ -134,9 +166,7 @@ export function load_config(): server_config {
         utility_retention_days: env_num("utility_retention_days", 30),
         power_outage_source_url: env_str("power_outage_source_url"),
         bill_due_reminder_days: env_num("bill_due_reminder_days", 5),
-        scrape_script_registry: parse_scrape_script_registry(
-            env_str("scrape_script_registry", "{}"),
-        ),
+        scrape_script_registry: build_scrape_script_registry(),
 
         // ap-voice runs as a separate Rust process; the bridge proxies to it.
         ap_voice_ws_url: env_str("ap_voice_ws_url", "ws://localhost:8090/voice"),

@@ -36,11 +36,12 @@ pub trait ResponseSink: Send + Sync {
 /// Assistant port: forward voiceQuery, consume token stream incrementally.
 #[async_trait]
 pub trait AssistantClient: Send + Sync {
-    /// Open a turn; tokens arrive on the returned channel until done.
+    /// Open a turn; events (text tokens and reminders) arrive on the returned
+    /// channel until done.
     async fn query(
         &self,
         query: VoiceQuery,
-    ) -> Result<mpsc::Receiver<Result<String, VoiceError>>, VoiceError>;
+    ) -> Result<mpsc::Receiver<Result<AssistantEvent, VoiceError>>, VoiceError>;
 }
 
 /// TTS port: synthesize one sentence to streamed PCM chunks.
@@ -303,7 +304,7 @@ impl AssistantClient for AssistantWsClient {
     async fn query(
         &self,
         query: VoiceQuery,
-    ) -> Result<mpsc::Receiver<Result<String, VoiceError>>, VoiceError> {
+    ) -> Result<mpsc::Receiver<Result<AssistantEvent, VoiceError>>, VoiceError> {
         let req = self
             .ws_url
             .as_str()
@@ -320,7 +321,7 @@ impl AssistantClient for AssistantWsClient {
             .await
             .map_err(|e| VoiceError::Assistant(e.to_string()))?;
 
-        let (tx, rx) = mpsc::channel::<Result<String, VoiceError>>(64);
+        let (tx, rx) = mpsc::channel::<Result<AssistantEvent, VoiceError>>(64);
         tokio::spawn(async move {
             while let Some(msg) = stream.next().await {
                 match msg {
@@ -328,9 +329,20 @@ impl AssistantClient for AssistantWsClient {
                         if let Ok(frame) = serde_json::from_str::<AssistantToken>(&txt) {
                             match frame.kind.as_deref() {
                                 Some("done") | Some("error") => break,
+                                Some("reminder") => {
+                                    let payload = ReminderPayload {
+                                        title: frame.title.unwrap_or_default(),
+                                        body: frame.body.unwrap_or_default(),
+                                        when: frame.when.unwrap_or_default(),
+                                        scheduled_at: frame.scheduled_at.unwrap_or_default(),
+                                    };
+                                    if tx.send(Ok(AssistantEvent::Reminder(payload))).await.is_err() {
+                                        break;
+                                    }
+                                }
                                 _ => {
                                     if let Some(text) = frame.text {
-                                        if tx.send(Ok(text)).await.is_err() {
+                                        if tx.send(Ok(AssistantEvent::Token(text))).await.is_err() {
                                             break;
                                         }
                                     }
@@ -484,13 +496,21 @@ async fn run_turn(
             filler_handle.abort();
             return Err(VoiceError::BargeIn);
         }
-        let token = item?;
-        reply_text.push_str(&token);
-        for sentence in streamer.push(&token) {
-            tts_total_ms += stream_sentence(
-                tts, sink, abort, &first_audio, &filler_handle, &sentence,
-            )
-            .await?;
+        match item? {
+            AssistantEvent::Reminder(payload) => {
+                // Forward the reminder to the client as a text frame; it is not
+                // spoken, so it never enters the TTS path.
+                let _ = sink.send(ResponseEvent::Reminder(payload)).await;
+            }
+            AssistantEvent::Token(token) => {
+                reply_text.push_str(&token);
+                for sentence in streamer.push(&token) {
+                    tts_total_ms += stream_sentence(
+                        tts, sink, abort, &first_audio, &filler_handle, &sentence,
+                    )
+                    .await?;
+                }
+            }
         }
     }
     if let Some(tail) = streamer.flush() {

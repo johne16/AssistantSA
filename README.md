@@ -35,8 +35,8 @@ Request flow: the mobile client calls the `ap-server` REST gateway (or opens the
 
 One-time setup before the first dev run.
 
-1. **Toolchains**: Node.js 20+, Rust (`cargo`) for `ap-voice`, Python 3 for `crawl-service`, the `redis-server` binary on PATH (the host spawns it), and optionally Postgres.
-2. **Client runtime**: set up an Android emulator / iOS simulator (or a connected device with a development build). The browser is not a supported target.
+1. **Toolchains**: install Node.js 20+, Rust (`cargo`) for `ap-voice`, and Python 3 for `crawl-service`. Optionally install Postgres; without it the host falls back to in-memory storage. Set up Redis for the host to spawn at runtime: on Windows, install Docker Desktop (the host runs Redis in a container); on Linux/Mac, put the `redis-server` binary on PATH.
+2. **Client runtime**: set up an Android emulator (Windows, see [android_emulator_testing.md](supplemental_instructions/android_emulator_testing.md)) or an iOS Simulator (Mac, see [ios_simulator_testing.md](supplemental_instructions/ios_simulator_testing.md)), or connect a physical device with a development build. The browser is not a supported target.
 3. **Backend and mobile deps, sidecar toolchains**: see [package_installation_instructions.md](supplemental_instructions/package_installation_instructions.md).
 4. **Auth keypair and token**: the `tenant_context_token` is an RS256 JWT. From the repo root, generate the keypair, then sign the token:
 
@@ -46,26 +46,61 @@ One-time setup before the first dev run.
    ```
 
    `generate_keys.mjs` writes `application-plane/backend/keys/{private,public}.pem` (the backend reads `public.pem` to verify). `sign_token.mjs` signs the token with `private.pem` and writes it to `resident-mobile/src/secrets/tenant_context_token.ts`, which `app-config.ts` imports. Both the private key and the token are gitignored.
-5. **Backend `.env`**: copy `.env.example` to a gitignored `.env` at the repo root and fill the secrets (`claude_api_key`, `database_url`, `deepgram_api_key`, `elevenlabs_api_key`). The public key is read from `backend/keys/public.pem`, not `.env`. Non-secret keys keep their defaults.
+5. **Backend `.env`**: copy `.env.example` to a gitignored `.env` at the repo root and fill the secrets (`claude_api_key`, `database_url`, `deepgram_api_key`, `elevenlabs_api_key`). The public key is read from `backend/keys/public.pem`, not `.env`. Non-secret keys can keep their defaults.
 6. **Client gateway URL**: in `app-config.ts`, set `api_gateway_base_url` to a host the device can reach (`http://10.0.2.2:8080` for the Android emulator, the dev machine's LAN IP for a physical device, `http://localhost:8080` for the iOS simulator).
 
 ## Running in dev mode
 
-Per-run steps. Backend commands run from the repo root.
+Per-run steps, after the initial setup is complete. Pick the Android (Windows) or iOS (Mac) track for the client; the backend step is the same for both.
 
-1. Build and start the backend host. It loads `.env`, spawns Redis and the `ap-voice` sidecar (the `crawl-service` sidecar is dead code and no longer spawned), and serves the gateway on `:8080`:
+### 1. Start the backend (both platforms)
 
+First prepare Redis: on Windows, start Docker Desktop and leave it running; on Linux/Mac, confirm the `redis-server` binary is on PATH. To run Redis a different way, set `redis_cmd` in `.env`.
+
+From the repo root, build and start the backend host. This spawns Redis and the `ap-voice` sidecar and serves the gateway on `:8080`:
+
+```
+npm run build
+node application-plane/backend/ap-server/dist/index.js
+```
+
+The host loads a repo-root `.env` itself when one is present, so no `--env-file` flag is needed.
+
+Wait for `[ap-server] listening on 0.0.0.0:8080` in the output before starting the client. To stop the host and all sidecars, press Ctrl-C in this terminal.
+
+Run the client as a development build, not Expo Go (native modules such as `expo-notifications` require it). After editing JavaScript, let Metro hot-reload; after native changes, rerun the build command (`npm run android` / `npx expo run:ios`).
+
+### 2a. Android emulator (Windows)
+
+See [android_emulator_testing.md](supplemental_instructions/android_emulator_testing.md) for full setup and Windows build troubleshooting.
+
+1. In a second terminal, start the emulator and leave it running:
+
+   ```powershell
+   emulator -avd pixel_api34 -no-snapshot-load
    ```
-   npm run build
-   node --env-file=.env application-plane/backend/ap-server/dist/index.js
-   ```
 
-   The Redis command is platform-aware: `redis-server` on Linux/Codespaces, a Docker container on Windows (Docker Desktop must be running). Override with `redis_cmd` in `.env`. Expect `[ap-server] listening on 0.0.0.0:8080`. Ctrl-C stops the host and all sidecars.
-2. In a second terminal, build and run the development build. This compiles the native project, installs it on the emulator/device, and starts Metro:
+2. In a third terminal, from `application-plane/mobile/resident-mobile`, start Metro and launch the installed development build on the emulator:
 
    ```
    cd application-plane/mobile/resident-mobile
    npm run android
    ```
 
-   Use `npm run ios` on Mac. Expo Go is not supported: native modules such as `expo-notifications` require a development build.
+### 2b. iOS Simulator (Mac)
+
+See [ios_simulator_testing.md](supplemental_instructions/ios_simulator_testing.md) for full setup.
+
+1. In a second terminal, boot a simulator and leave it running:
+
+   ```sh
+   xcrun simctl boot "iPhone 15"
+   open -a Simulator
+   ```
+
+2. In a third terminal, from `application-plane/mobile/resident-mobile`, start Metro and launch the installed development build on the simulator:
+
+   ```sh
+   cd application-plane/mobile/resident-mobile
+   npm run ios
+   ```

@@ -63,8 +63,14 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
   }
 
   async function push(token: tenant_context_token, push_payload: bill_push): Promise<void> {
-    // No credential handling; store scraped bills + usage only.
-    await store.store_bill_push(token.city_tenant_id, token.sub, push_payload);
+    // No credential handling; store scraped bills + usage only. Stamp each record
+    // with the store time so reads can report when the data was recorded.
+    const recorded_at = clock.now().toISOString();
+    const stamped: bill_push = {
+      bills: push_payload.bills.map((b) => ({ ...b, recorded_at })),
+      usage: push_payload.usage.map((u) => ({ ...u, recorded_at })),
+    };
+    await store.store_bill_push(token.city_tenant_id, token.sub, stamped);
   }
 
   function script(site_id: string): scrape_script_entry | undefined {
@@ -97,6 +103,7 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
         status: o.status,
         reported_at: o.reported_at,
         outage_id: o.outage_id,
+        recorded_at: now.toISOString(),
       }));
 
     if (fresh.length > 0) {

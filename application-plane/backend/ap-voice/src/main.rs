@@ -46,6 +46,17 @@ struct ControlFrame<'a> {
     kind: &'a str,
 }
 
+/// Outbound reminder frame: forwards a reminder the assistant set to the client.
+#[derive(Debug, Serialize)]
+struct ReminderFrame<'a> {
+    #[serde(rename = "type")]
+    kind: &'a str,
+    title: String,
+    body: String,
+    when: String,
+    scheduled_at: String,
+}
+
 /// Inbound control frame from the client after the handshake. The only control
 /// today is barge_in, sent the instant the client detects the resident speaking
 /// over the assistant.
@@ -86,6 +97,20 @@ impl ResponseSink for WsResponseSink {
             }
             ResponseEvent::AssistantTranscript(text) => {
                 let frame = TranscriptFrame { kind: "assistant_transcript", text };
+                Message::Text(
+                    serde_json::to_string(&frame)
+                        .map_err(|e| VoiceError::WebSocket(e.to_string()))?
+                        .into(),
+                )
+            }
+            ResponseEvent::Reminder(payload) => {
+                let frame = ReminderFrame {
+                    kind: "reminder",
+                    title: payload.title,
+                    body: payload.body,
+                    when: payload.when,
+                    scheduled_at: payload.scheduled_at,
+                };
                 Message::Text(
                     serde_json::to_string(&frame)
                         .map_err(|e| VoiceError::WebSocket(e.to_string()))?

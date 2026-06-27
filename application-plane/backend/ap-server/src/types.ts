@@ -24,6 +24,7 @@ export interface scheduler_intervals {
   city_events_interval_ms: number;
   power_outage_interval_ms: number;
   bill_reminder_interval_ms: number;
+  reminder_eval_interval_ms: number;
 }
 
 // Whole-process config read from the environment at startup. snake_case keys

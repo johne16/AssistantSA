@@ -126,7 +126,9 @@ The default Codespaces Linux image already includes runtime versions for popular
 
 ## 6. Setting environment variables / secrets
 
-The app reads configuration from environment variables. It uses these keys: `database_url`, `claude_api_key`, `token_verification_public_key`, `push_access_token`, `deepgram_api_key`, `elevenlabs_api_key`, and `elevenlabs_voice_id`. There are two ways to provide them.
+The app reads configuration from environment variables. The secrets you must provide are `database_url`, `claude_api_key`, `deepgram_api_key`, and `elevenlabs_api_key`; `elevenlabs_voice_id` is also read from the environment but has a default. The token verification public key is read from `application-plane/backend/keys/public.pem`, not the environment. There are two ways to provide the environment values.
+
+> **Warning:** these two methods are not equally secure. Codespaces account secrets (6b) are encrypted at rest on GitHub, injected at runtime, and never written to the repo or the container filesystem. A local `.env` file (6a) sits in plaintext on the codespace disk, is readable by anyone with access to that codespace, and risks an accidental commit if the gitignore is ever broken. Use Codespaces account secrets (6b) for API keys.
 
 ### 6a. Local .env file (inside the codespace)
 

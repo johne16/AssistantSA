@@ -10,7 +10,10 @@
     "ios": {
       "icon": "./assets/expo.icon",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Microphone access is used for hands-free voice with the assistant."
+        "NSMicrophoneUsageDescription": "Microphone access is used for hands-free voice with the assistant.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
       }
     },
     "android": {

@@ -9,12 +9,14 @@
 
 import type { civic_handler } from "ap-civic";
 import type { utility_handler } from "ap-utility";
+import type { reminders_handler } from "ap-reminders";
 
 import type { scheduler_intervals } from "./types.js";
 
 export interface scheduler_deps {
   civic: civic_handler;
   utility: utility_handler;
+  reminders: reminders_handler;
   intervals: scheduler_intervals;
 }
 
@@ -39,7 +41,7 @@ function run_on_interval(
 }
 
 export function start_scheduler(deps: scheduler_deps): scheduler_handle {
-  const { civic, utility, intervals } = deps;
+  const { civic, utility, reminders, intervals } = deps;
   const timers: NodeJS.Timeout[] = [];
 
   timers.push(
@@ -55,6 +57,9 @@ export function start_scheduler(deps: scheduler_deps): scheduler_handle {
     run_on_interval(intervals.power_outage_interval_ms, () => utility.run_outage_fetch()),
     run_on_interval(intervals.bill_reminder_interval_ms, () =>
       utility.run_reminder_evaluation(),
+    ),
+    run_on_interval(intervals.reminder_eval_interval_ms, () =>
+      reminders.run_reminder_evaluation(),
     ),
   );
 

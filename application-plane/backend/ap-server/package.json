@@ -13,6 +13,7 @@
     "ap-assistant": "*",
     "ap-civic": "*",
     "ap-notifications": "*",
+    "ap-reminders": "*",
     "ap-utility": "*",
     "express": "^5.1.0",
     "ioredis": "^5.4.2",

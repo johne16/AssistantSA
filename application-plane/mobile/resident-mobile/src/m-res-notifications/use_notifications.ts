@@ -3,6 +3,7 @@ import * as Notifications from "expo-notifications";
 import { use_resident_session } from "@/m-res-auth";
 import { app_config } from "@/app-config";
 import type {
+  local_notification,
   notification as notification_shape,
   notification_preferences,
   notification_type,
@@ -27,6 +28,8 @@ const valid_types: ReadonlySet<notification_type> = new Set([
   "emergency_alert",
   "bill_due",
   "event_reminder",
+  "reminder",
+  "utility_sync_failed",
 ]);
 
 // Resolves the navigation type from the notification's data payload. The
@@ -200,6 +203,21 @@ export function use_notifications({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Raise a local notification for a client-origin event (e.g. a failed account
+  // sync), routed through the same OS notification path as polled items so the
+  // banner and tap-to-deep-link flow are identical.
+  function raise_local(item: local_notification): void {
+    void Notifications.scheduleNotificationAsync({
+      content: {
+        title: item.title,
+        body: item.body,
+        // Carry the type in data so a tap can deep-link via resolve_type.
+        data: { ...item.data, type: item.type },
+      },
+      trigger: null, // fire immediately
+    });
+  }
+
   // Portal toggle handler: persist the new opt-ins to the backend immediately.
   function set_preferences(prefs: notification_preferences): void {
     preferences_ref.current = prefs;
@@ -224,5 +242,5 @@ export function use_notifications({
     }
   }
 
-  return { set_preferences, get_preferences };
+  return { set_preferences, get_preferences, raise_local };
 }

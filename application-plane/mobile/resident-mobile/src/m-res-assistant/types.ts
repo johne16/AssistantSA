@@ -29,22 +29,79 @@ export interface voice_stream_open {
 // Who authored a chat turn.
 export type turn_role = "user" | "assistant";
 
+// Structured reminder confirmation rendered as a chip beneath an assistant turn
+// (mockup .rem-chip), instead of prose. Set when the assistant confirms a
+// set_reminder tool call.
+export interface chat_reminder_chip {
+  title: string;
+  when: string;
+}
+
 // A single rendered chat turn. text grows as SSE tokens or voice transcript
-// fragments arrive. pending marks an assistant turn still streaming.
+// fragments arrive. pending marks an assistant turn still streaming. The
+// optional fields carry the mockup's richer assistant states: a provenance line
+// (source + sync time), a reminder confirmation chip, and an error/can't-do
+// bubble. They are populated when the backend marks a reply accordingly; today
+// only error is set locally on a failed send.
+// A source-failure rendered as an error bubble naming the failed provider, with
+// a retry or re-link action. Set from the assistant's source_failure event.
+export interface chat_failure {
+  source: string;
+  reason: string;
+  action: "retry" | "relink";
+}
+
 export interface chat_turn {
   id: string;
   role: turn_role;
   text: string;
   pending: boolean;
+  error?: boolean;
+  source?: string;
+  reminder?: chat_reminder_chip;
+  failure?: chat_failure;
+  // The user message that produced this reply, so a failed turn can be retried.
+  retry_message?: string;
 }
 
 // assistantResponse SSE: the named events the assistant service emits. token
-// carries an incremental text fragment; done closes the stream.
-export type assistant_sse_event = "token" | "done";
+// carries an incremental text fragment; reminder confirms a set_reminder tool
+// call so the client records it and renders a chip; source marks a reply grounded
+// in live data; source_failure reports an unreachable provider; done closes the
+// stream.
+export type assistant_sse_event =
+  | "token"
+  | "reminder"
+  | "source"
+  | "source_failure"
+  | "done"
+  | "error";
+
+// Parsed SSE source payload (provenance line under a data-grounded reply).
+export interface assistant_source_payload {
+  source: string;
+  synced_at: string;
+}
+
+// Parsed SSE source_failure payload (provider unreachable for a reply).
+export interface assistant_source_failure_payload {
+  source: string;
+  reason: string;
+  action: "retry" | "relink";
+}
 
 // Parsed SSE token payload. The service sends the fragment as event data.
 export interface assistant_token_payload {
   text: string;
+}
+
+// Parsed SSE reminder payload, emitted when the assistant sets a reminder. when
+// is the human display label; scheduled_at is the ISO instant it fires.
+export interface assistant_reminder_payload {
+  title: string;
+  body: string;
+  when: string;
+  scheduled_at: string;
 }
 
 // voiceResponse: the message kinds the voice service streams down the socket.

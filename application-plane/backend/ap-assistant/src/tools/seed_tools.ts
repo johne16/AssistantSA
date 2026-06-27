@@ -7,12 +7,10 @@ export const seed_tools: task_tool[] = [
     tool_definition: {
       name: "check_collection_schedule",
       description:
-        "Use when the resident asks when trash, recycling, or yard-waste collection happens. Defaults to the resident's saved address; only pass address to override it.",
+        "Use when the resident asks when trash, recycling, or yard-waste collection happens. Resolves to the resident's saved address automatically.",
       input_schema: {
         type: "object",
-        properties: {
-          address: { type: "string", description: "Optional address to override the saved one." },
-        },
+        properties: {},
         required: [],
       },
     },
@@ -84,13 +82,34 @@ export const seed_tools: task_tool[] = [
   },
   {
     tool_definition: {
-      name: "find_my_area",
+      name: "set_reminder",
       description:
-        "Use when the resident asks which school or neighborhood service area they belong to. Defaults to the resident's saved address; only pass address to override it.",
+        "Use when the resident asks to be reminded about something at a specific time, e.g. 'remind me two days before my bill is due'. Resolve the time to an absolute ISO 8601 instant.",
       input_schema: {
         type: "object",
         properties: {
-          address: { type: "string", description: "Optional address to override the saved one." },
+          title: { type: "string", description: "Short reminder title." },
+          body: { type: "string", description: "Reminder detail shown to the resident." },
+          scheduled_at: {
+            type: "string",
+            description: "ISO 8601 instant the reminder should fire.",
+          },
+        },
+        required: ["title", "body", "scheduled_at"],
+      },
+    },
+    downstream: "ap-reminders",
+    operation: "set_reminder",
+    requires_confirmation: false,
+  },
+  {
+    tool_definition: {
+      name: "my_area",
+      description:
+        "Use when the resident asks which school or neighborhood service area they belong to. Resolves to the resident's saved address automatically.",
+      input_schema: {
+        type: "object",
+        properties: {
           kind: {
             type: "string",
             enum: ["school", "neighborhood"],
@@ -101,7 +120,7 @@ export const seed_tools: task_tool[] = [
       },
     },
     downstream: "ap-civic",
-    operation: "find_my_area",
+    operation: "my_area",
     requires_confirmation: false,
   },
 ];

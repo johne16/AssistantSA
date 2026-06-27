@@ -8,6 +8,25 @@
 // at build time. The file is gitignored and stays local; run the script before
 // building. Payload decodes to { sub, city_tenant_id, iat, exp }.
 import { tenant_context_token } from "./secrets/tenant_context_token";
+import Constants from "expo-constants";
+
+// Port the ap-server REST/WS gateway listens on. The dev host is resolved at
+// runtime; only the port is fixed.
+const api_gateway_port = 8080;
+
+// Resolve the dev machine's host the device should reach for the gateway.
+// Constants.expoConfig.hostUri is the Metro dev server origin (e.g.
+// "192.168.1.5:8081"), present only during development under @expo/cli. The
+// Expo CLI fills it with the LAN IP, which is reachable from the Android
+// emulator, an Android physical device, the iOS simulator, and an iOS physical
+// device alike, so one derivation covers every target. The host portion is
+// stripped of the Metro port and the gateway port is applied. Falls back to
+// localhost when hostUri is absent (e.g. a production build).
+function resolve_api_gateway_base_url(): string {
+    const host_uri = Constants.expoConfig?.hostUri;
+    const dev_host = host_uri ? host_uri.split(":")[0] : "localhost";
+    return `http://${dev_host}:${api_gateway_port}`;
+}
 
 export const app_config = {
     // m-res-shell
@@ -15,8 +34,7 @@ export const app_config = {
     // m-res-auth
     tenant_context_token,
     // m-res-accounts / m-res-civic / m-res-assistant
-    api_gateway_base_url: "http://10.0.2.2:8080",    // when using android simulation
-    // api_gateway_base_url: "http://localhost:8080",    // when using iOS simulation
+    api_gateway_base_url: resolve_api_gateway_base_url(),
     // m-res-accounts
     max_concurrent_syncs: 3,
     // m-res-assistant

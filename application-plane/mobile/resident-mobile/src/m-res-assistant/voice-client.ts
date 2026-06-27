@@ -1,5 +1,6 @@
 import { app_config } from "@/app-config";
 import type {
+  assistant_reminder_payload,
   audio_io,
   voice_status,
   voice_stream_open,
@@ -16,6 +17,7 @@ const voice_path = "/voice/stream";
 // Callbacks the screen supplies to render transcript turns and status.
 export interface voice_handlers {
   on_transcript: (event: voice_transcript_event) => void;
+  on_reminder: (reminder: assistant_reminder_payload) => void;
   on_status: (status: voice_status) => void;
   on_error: (message: string) => void;
 }
@@ -137,11 +139,27 @@ export function open_voice_stream(
       audio.play_chunk(bytes_to_base64(bytes));
       return;
     }
-    // Text frame = a control or transcript event keyed by type.
-    let frame: { type?: string; text?: string };
+    // Text frame = a control, transcript, or reminder event keyed by type.
+    let frame: {
+      type?: string;
+      text?: string;
+      title?: string;
+      body?: string;
+      when?: string;
+      scheduled_at?: string;
+    };
     try {
-      frame = JSON.parse(message.data) as { type?: string; text?: string };
+      frame = JSON.parse(message.data) as typeof frame;
     } catch {
+      return;
+    }
+    if (frame.type === "reminder") {
+      handlers.on_reminder({
+        title: frame.title ?? "",
+        body: frame.body ?? "",
+        when: frame.when ?? "",
+        scheduled_at: frame.scheduled_at ?? "",
+      });
       return;
     }
     if (frame.type === "response_start") {

@@ -23,7 +23,11 @@ export type notification_type =
   | "power_outage"
   | "emergency_alert"
   | "bill_due"
-  | "event_reminder";
+  | "event_reminder"
+  | "reminder"
+  // Client-local only: an on-device account sync failed. Never sent by the
+  // backend; raised on-device since the scrape failure is known only here.
+  | "utility_sync_failed";
 
 // A received notification routed to the portal. Mirrors the shape the push
 // service delivers; content/data are passed through untouched.
@@ -75,11 +79,22 @@ export interface use_notifications_args {
   on_notification_navigation: (nav: notification_navigation) => void;
 }
 
+// A client-origin notification raised on-device (not polled from the backend),
+// e.g. an account sync that failed.
+export interface local_notification {
+  type: notification_type;
+  title: string;
+  body: string;
+  data?: Record<string, unknown>;
+}
+
 // Return surface of the hook for the portal's toggle screen.
 export interface use_notifications_result {
   set_preferences: (prefs: notification_preferences) => void;
   // Load the resident's stored opt-ins from the backend. Null if never saved.
   get_preferences: () => Promise<notification_preferences | null>;
+  // Raise a local notification for a client-origin event (e.g. a failed sync).
+  raise_local: (item: local_notification) => void;
 }
 
 // Config injected from app_config.

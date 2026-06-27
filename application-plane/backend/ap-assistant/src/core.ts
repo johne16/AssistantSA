@@ -11,7 +11,10 @@ import type {
   llm_stream_event,
   llm_text_block,
   pending_confirmation,
+  reminder_chunk,
   response_chunk,
+  source_chunk,
+  source_failure_chunk,
   retry_options,
   session_store,
   tool_registry,
@@ -48,6 +51,81 @@ const faq: Record<string, string> = {
 
 function normalize(text: string): string {
   return text.trim().toLowerCase().replace(/[.!?,]+$/g, "").replace(/\s+/g, " ");
+}
+
+const month_abbr = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+// Human label for a reminder's scheduled instant, e.g. "Jul 7 · 9:00 AM".
+// Read from the ISO string's own wall-clock fields so the displayed time matches
+// what was scheduled regardless of the server's timezone (offset-agnostic).
+function reminder_when_display(scheduled_at: string): string {
+  const m = scheduled_at.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return scheduled_at;
+  const month = month_abbr[Number(m[2]) - 1] ?? m[2];
+  const day = Number(m[3]);
+  let hour = Number(m[4]);
+  const meridiem = hour >= 12 ? "PM" : "AM";
+  hour = hour % 12 || 12;
+  return `${month} ${day} · ${hour}:${m[5]} ${meridiem}`;
+}
+
+// Human source label for a downstream data module, used on the provenance line.
+// Generic labels (no provider/city specifics) since the tool result does not
+// carry a provider name. Non-data downstreams return "" (no provenance).
+function source_label_of(downstream: string): string {
+  switch (downstream) {
+    case "ap-civic":
+      return "City services";
+    case "ap-utility":
+      return "Utility account";
+    default:
+      return "";
+  }
+}
+
+// Date + time label, e.g. "Jul 5 · 9:12 AM", read from an ISO string's own
+// fields so the resident can judge staleness themselves.
+function record_display(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return "";
+  const month = month_abbr[Number(m[2]) - 1] ?? m[2];
+  const day = Number(m[3]);
+  let hour = Number(m[4]);
+  const meridiem = hour >= 12 ? "PM" : "AM";
+  hour = hour % 12 || 12;
+  return `${month} ${day} · ${hour}:${m[5]} ${meridiem}`;
+}
+
+// The record timestamp on one result item: when it was stored (recorded_at),
+// fetched (fetched_at, civic lists), or resolved (resolved_at, my_area/rep).
+function record_timestamp_of(item: unknown): string {
+  const o = item as {
+    recorded_at?: unknown;
+    fetched_at?: unknown;
+    resolved_at?: unknown;
+  };
+  const v = o.recorded_at ?? o.fetched_at ?? o.resolved_at;
+  return typeof v === "string" ? v : "";
+}
+
+// Record-time label for a data tool result: the freshest record timestamp among
+// the returned records (which may be an array or a single object). Empty when no
+// timestamp is present; the caller then omits the synced label.
+function synced_at_display(result: unknown): string {
+  const items = Array.isArray(result)
+    ? result
+    : result && typeof result === "object"
+      ? [result]
+      : [];
+  let best = "";
+  for (const item of items) {
+    const ts = record_timestamp_of(item);
+    if (ts && ts > best) best = ts;
+  }
+  return best ? record_display(best) : "";
 }
 
 // Reliability: which errors are transient and worth retrying.
@@ -230,8 +308,66 @@ class core_impl implements assistant_core {
       return;
     }
 
+    // A set-reminder tool emits a structured reminder chunk so the caller can
+    // record the reminder and render a confirmation chip, ahead of the spoken
+    // confirmation text.
+    const reminder = this.reminder_chunk_of(tool_use.tool_name, result.response.result);
+    if (reminder) yield reminder;
+
+    // Provenance: a data-source tool emits either a source line (success) or a
+    // source-failure signal (the source could not be reached), so the caller can
+    // attribute the reply or render a retry/re-link bubble.
+    const provenance = this.provenance_of(tool_use.tool_name, result.response.result);
+    if (provenance) yield provenance;
+
     // Feed the tool result back into a grounded follow-up turn.
     yield* this.grounded_followup(input, messages, tool_use.tool_name, result.response.result);
+  }
+
+  // Build a provenance signal from a data-source tool result. Returns a source
+  // line on success, a source-failure signal when the result carries an error,
+  // or undefined for non-data tools (e.g. reminders).
+  private provenance_of(
+    tool_name: string,
+    result: unknown,
+  ): source_chunk | source_failure_chunk | undefined {
+    const tool = this.deps.registry.get(tool_name);
+    if (!tool) return undefined;
+    const source = source_label_of(tool.downstream);
+    if (!source) return undefined;
+    const r = result as { error?: unknown } | null;
+    if (r && typeof r.error === "string") {
+      return {
+        type: "source_failure",
+        source,
+        reason: r.error,
+        action: tool.downstream === "ap-utility" ? "relink" : "retry",
+      };
+    }
+    return { type: "source", source, synced_at: synced_at_display(result) };
+  }
+
+  // Build a reminder chunk from a set-reminder tool result, or undefined when the
+  // tool was not a reminders tool or the result is not a reminder shape.
+  private reminder_chunk_of(
+    tool_name: string,
+    result: unknown,
+  ): reminder_chunk | undefined {
+    const tool = this.deps.registry.get(tool_name);
+    if (!tool || tool.downstream !== "ap-reminders") return undefined;
+    const r = result as {
+      title?: unknown;
+      body?: unknown;
+      scheduled_at?: unknown;
+    } | null;
+    if (!r || typeof r.scheduled_at !== "string") return undefined;
+    return {
+      type: "reminder",
+      title: typeof r.title === "string" ? r.title : "",
+      body: typeof r.body === "string" ? r.body : "",
+      when: reminder_when_display(r.scheduled_at),
+      scheduled_at: r.scheduled_at,
+    };
   }
 
   // Second Claude turn that composes the reply from the live tool result.

@@ -7,13 +7,14 @@ import type { tool_request, tool_request_port, tool_response, tool_request_ports
 import type { civic_handler, civic_resource, my_area_kind } from "ap-civic";
 import type { utility_handler } from "ap-utility";
 import type { utility_resource } from "ap-utility";
+import type { reminders_handler } from "ap-reminders";
 
 // Seed-tool operation -> civic_resource.
 const civic_op_to_resource: Record<string, civic_resource> = {
   check_collection_schedule: "collection_schedule",
   check_city_alerts: "alerts",
   check_city_events: "events",
-  find_my_area: "my_area",
+  my_area: "my_area",
 };
 
 // Seed-tool operation -> utility_resource.
@@ -33,10 +34,8 @@ export function create_civic_tool_port(handler: civic_handler): tool_request_por
       if (!resource) {
         return { operation: request.operation, result: { error: "unknown_operation" } };
       }
-      const address = as_string(request.params["address"]);
       const kind = as_string(request.params["kind"]) as my_area_kind | undefined;
       const params = {
-        ...(address !== undefined ? { address } : {}),
         ...(kind !== undefined ? { kind } : {}),
       };
       const response = await handler.agent_request({
@@ -68,12 +67,35 @@ export function create_utility_tool_port(handler: utility_handler): tool_request
   };
 }
 
+// The assistant set_reminder tool maps title/body/scheduled_at straight through
+// to ap-reminders.set_reminder via its agent_request path.
+export function create_reminders_tool_port(handler: reminders_handler): tool_request_port {
+  return {
+    async send(request: tool_request): Promise<tool_response> {
+      const title = as_string(request.params["title"]) ?? "";
+      const body = as_string(request.params["body"]) ?? "";
+      const scheduled_at = as_string(request.params["scheduled_at"]);
+      if (!scheduled_at) {
+        return { operation: request.operation, result: { error: "missing_scheduled_at" } };
+      }
+      const entry = await handler.agent_request({
+        tenant_context_token: request.tenant_context_token,
+        operation: "set_reminder",
+        params: { title, body, scheduled_at },
+      });
+      return { operation: request.operation, result: entry };
+    },
+  };
+}
+
 export function create_tool_request_ports(
   civic: civic_handler,
   utility: utility_handler,
+  reminders: reminders_handler,
 ): tool_request_ports {
   return {
     "ap-civic": create_civic_tool_port(civic),
     "ap-utility": create_utility_tool_port(utility),
+    "ap-reminders": create_reminders_tool_port(reminders),
   };
 }

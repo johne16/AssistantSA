@@ -2,6 +2,9 @@ import EventSource, { type EventSourceListener } from "react-native-sse";
 import { app_config } from "@/app-config";
 import type {
   assistant_query,
+  assistant_reminder_payload,
+  assistant_source_failure_payload,
+  assistant_source_payload,
   assistant_sse_event,
   assistant_token_payload,
 } from "./types";
@@ -15,6 +18,9 @@ const assistant_path = "/assistant/query";
 // Callbacks the screen supplies to render the stream as it arrives.
 export interface assistant_query_handlers {
   on_token: (text: string) => void; // an incremental text fragment
+  on_reminder: (reminder: assistant_reminder_payload) => void; // a set reminder
+  on_source: (source: assistant_source_payload) => void; // provenance line
+  on_source_failure: (failure: assistant_source_failure_payload) => void; // unreachable provider
   on_done: () => void; // stream finished cleanly
   on_error: (message: string) => void; // transport or server error
 }
@@ -55,6 +61,31 @@ export function send_assistant_query(
         // Fall back to raw data if the service emits a bare text fragment.
         handlers.on_token(event.data);
       }
+    } else if (event.type === "reminder") {
+      if (!event.data) return;
+      try {
+        handlers.on_reminder(
+          JSON.parse(event.data) as assistant_reminder_payload,
+        );
+      } catch {
+        // Malformed reminder payload: ignore rather than crash the stream.
+      }
+    } else if (event.type === "source") {
+      if (!event.data) return;
+      try {
+        handlers.on_source(JSON.parse(event.data) as assistant_source_payload);
+      } catch {
+        // Malformed source payload: ignore rather than crash the stream.
+      }
+    } else if (event.type === "source_failure") {
+      if (!event.data) return;
+      try {
+        handlers.on_source_failure(
+          JSON.parse(event.data) as assistant_source_failure_payload,
+        );
+      } catch {
+        // Malformed failure payload: ignore rather than crash the stream.
+      }
     } else if (event.type === "done") {
       handlers.on_done();
       es.removeAllEventListeners();
@@ -71,6 +102,9 @@ export function send_assistant_query(
   };
 
   es.addEventListener("token", listener);
+  es.addEventListener("reminder", listener);
+  es.addEventListener("source", listener);
+  es.addEventListener("source_failure", listener);
   es.addEventListener("done", listener);
   es.addEventListener("error", listener);
 

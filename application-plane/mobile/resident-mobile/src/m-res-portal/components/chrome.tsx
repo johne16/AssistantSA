@@ -1,5 +1,7 @@
-// Navigation chrome: scrollable screen wrapper and the bottom tab bar.
-// Styled from theme tokens.
+// Navigation chrome: scrollable screen wrapper, the portal-level wake bar, and
+// the bottom tab bar. Styled from theme tokens. Mirrors the mockup's four
+// surfaces (Chat, Feed, Accounts, Settings) with the "Hey Bex" wake bar pinned
+// above the tabs on every screen.
 
 import React from "react";
 import {
@@ -30,19 +32,75 @@ export function Screen(props: { children: React.ReactNode }) {
   );
 }
 
-// Bottom tab order mirrors the mockup: Home, City, Ask (center), Utility, Discover.
+// Bottom tab order mirrors the mockup: Chat, Feed, Accounts, Settings.
 const TABS: tab_def[] = [
-  { id: "home", label: "Home", glyph: "⌂" },
-  { id: "city", label: "City", glyph: "▣" },
-  { id: "ask", label: "Ask", glyph: "A", ask: true },
-  { id: "utility", label: "Utility", glyph: "⚡" },
-  { id: "discover", label: "Discover", glyph: "◎" },
+  { id: "chat", label: "Chat", glyph: "💬" },
+  { id: "feed", label: "Feed", glyph: "🔔" },
+  { id: "accounts", label: "Accounts", glyph: "💳" },
+  { id: "settings", label: "Settings", glyph: "⚙️" },
 ];
+
+// Portal-level wake bar (mockup .wake): live dot, wake-word line, mute toggle.
+export function WakeBar(props: { muted: boolean; onToggle: () => void }) {
+  const t = use_theme();
+  const tr = use_t();
+  const c = t.color;
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 9,
+        paddingVertical: t.spacing.sm,
+        paddingHorizontal: t.spacing.lg,
+        backgroundColor: c.surface,
+        borderTopWidth: 1,
+        borderTopColor: c.border,
+      }}
+    >
+      <View
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: props.muted ? c.ink_subtle : c.signal,
+        }}
+      />
+      <Text
+        style={{
+          fontFamily: t.font.mono,
+          fontSize: 11,
+          color: props.muted ? c.ink_subtle : c.ink_muted,
+        }}
+      >
+        {props.muted ? tr("Wake word muted · ") : tr("Bex is listening · ")}
+        <Text style={{ color: props.muted ? c.ink_subtle : c.ink }}>
+          {props.muted ? tr("tap to resume") : '"Hey Bex"'}
+        </Text>
+      </Text>
+      <Pressable onPress={props.onToggle} hitSlop={8} style={{ marginLeft: "auto" }}>
+        <Text
+          style={{
+            fontFamily: t.font.mono,
+            fontSize: 10.5,
+            letterSpacing: 1,
+            textTransform: "uppercase",
+            color: c.ink_subtle,
+          }}
+        >
+          {props.muted ? tr("Unmute") : tr("Mute")}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
 
 export function TabBar(props: {
   active: tab_id;
   onSelect: (tab: tab_id) => void;
   onLayout?: (event: LayoutChangeEvent) => void;
+  // Count shown on the Feed tab badge (triggered items). 0 hides it.
+  feed_badge?: number;
 }) {
   const t = use_theme();
   const tr = use_t();
@@ -62,57 +120,47 @@ export function TabBar(props: {
     >
       {TABS.map((tab) => {
         const on = props.active === tab.id;
-        if (tab.ask) {
-          return (
-            <Pressable
-              key={tab.id}
-              onPress={() => props.onSelect(tab.id)}
-              style={{ flex: 1, alignItems: "center" }}
-            >
-              <View
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: t.radius.md,
-                  backgroundColor: c.accent,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  marginTop: -10,
-                }}
-              >
-                <Text
-                  style={{
-                    fontFamily: t.font.display,
-                    fontSize: 19,
-                    color: c.on_accent,
-                  }}
-                >
-                  {tab.glyph}
-                </Text>
-              </View>
-              <Text
-                style={{
-                  fontFamily: t.font.body,
-                  fontSize: 11,
-                  fontWeight: "600",
-                  color: c.accent,
-                  marginTop: 5,
-                }}
-              >
-                {tr(tab.label)}
-              </Text>
-            </Pressable>
-          );
-        }
+        const badge =
+          tab.id === "feed" && props.feed_badge && props.feed_badge > 0
+            ? props.feed_badge
+            : 0;
         return (
           <Pressable
             key={tab.id}
             onPress={() => props.onSelect(tab.id)}
             style={{ flex: 1, alignItems: "center", gap: 5, paddingVertical: 2 }}
           >
-            <Text style={{ fontSize: 20, color: on ? c.primary : c.ink_subtle }}>
-              {tab.glyph}
-            </Text>
+            <View>
+              <Text style={{ fontSize: 20, color: on ? c.primary : c.ink_subtle }}>
+                {tab.glyph}
+              </Text>
+              {badge > 0 ? (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -5,
+                    right: -11,
+                    minWidth: 16,
+                    height: 16,
+                    paddingHorizontal: 4,
+                    borderRadius: t.radius.pill,
+                    backgroundColor: c.signal,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: t.font.mono,
+                      fontSize: 10,
+                      color: c.on_signal,
+                    }}
+                  >
+                    {badge}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
             <Text
               style={{
                 fontFamily: t.font.body,
@@ -121,7 +169,7 @@ export function TabBar(props: {
                 color: on ? c.primary : c.ink_subtle,
               }}
             >
-              {tab.label}
+              {tr(tab.label)}
             </Text>
           </Pressable>
         );

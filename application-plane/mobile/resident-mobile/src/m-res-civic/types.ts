@@ -25,6 +25,10 @@ export type civic_resource =
 
 export type my_area_kind = "school" | "neighborhood";
 
+// Server-assigned severity tier for an alert, mirroring ap-civic. Drives the
+// Feed's critical/important/routine tiering.
+export type alert_tier = "critical" | "important" | "routine";
+
 // ---------------------------------------------------------------------------
 // Civic data shapes. Mirror of ap-civic stored shapes.
 // ---------------------------------------------------------------------------
@@ -34,6 +38,7 @@ export interface alert_entry {
   title: string;
   body: string;
   source: string;
+  tier: alert_tier;
   effective_at: string;
   expires_at: string | null;
   fetched_at: string;
@@ -96,7 +101,6 @@ export interface my_area_entry {
 // ---------------------------------------------------------------------------
 
 export interface civic_read_params {
-  address?: string; // required for collection_schedule | find_my_rep | my_area
   kind?: my_area_kind; // required for my_area
 }
 

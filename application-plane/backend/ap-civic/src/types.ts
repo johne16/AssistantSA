@@ -28,6 +28,10 @@ export type my_area_kind = "school" | "neighborhood";
 
 export type fetch_source = "collection_schedule" | "city_alerts" | "city_events";
 
+// Server-assigned severity tier for an alert, driving the client's Feed tiering.
+// critical: life-safety; important: act-soon; routine: informational.
+export type alert_tier = "critical" | "important" | "routine";
+
 // ---------------------------------------------------------------------------
 // Stored civic-data shapes.
 // ---------------------------------------------------------------------------
@@ -38,6 +42,7 @@ export interface alert_entry {
   title: string;
   body: string;
   source: string; // e.g. "ahas" | "nws"
+  tier: alert_tier; // severity tier mapped at fetch time
   effective_at: string; // ISO 8601
   expires_at: string | null; // ISO 8601 or null
   fetched_at: string; // ISO 8601, time first stored
@@ -108,7 +113,6 @@ export interface my_area_entry {
 // ---------------------------------------------------------------------------
 
 export interface civic_read_params {
-  address?: string; // required for collection_schedule | find_my_rep | my_area
   kind?: my_area_kind; // required for my_area
 }
 

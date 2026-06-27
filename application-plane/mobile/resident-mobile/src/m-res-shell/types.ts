@@ -12,9 +12,20 @@ export interface color_tokens {
   primary: string;
   primary_pressed: string;
   on_primary: string;
+  primary_soft: string;
+  // Burnt-amber signal. accent/accent_pressed/on_accent are kept as aliases of
+  // the signal trio so existing components that read accent keep working.
+  signal: string;
+  signal_pressed: string;
+  on_signal: string;
+  signal_soft: string;
   accent: string;
   accent_pressed: string;
   on_accent: string;
+  // Critical / life-safety tier.
+  danger: string;
+  on_danger: string;
+  danger_soft: string;
   border: string;
   border_strong: string;
   focus_ring: string;

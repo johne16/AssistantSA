@@ -11,15 +11,18 @@ import type {
   pending_notifications_store,
 } from "./types.js";
 
-// Maps each notification_type to the opt-in flag that gates its delivery.
+// Maps each notification_type to the opt-in flag that gates its delivery. null
+// means the type is always delivered (no opt-in): a reminder the resident set
+// themselves cannot be turned off.
 const opt_in_flag_by_type: Record<
   notification_type,
-  keyof notification_preferences
+  keyof notification_preferences | null
 > = {
   power_outage: "utility_alert_enabled",
   emergency_alert: "city_alert_enabled",
   bill_due: "bills_reminder_enabled",
   event_reminder: "event_reminder_enabled",
+  reminder: null,
 };
 
 export interface notifications_service {
@@ -79,16 +82,17 @@ export function create_notifications_service(
     },
 
     async notifyRequest(city_tenant_id, sub, type, notification) {
-      const record = await notifications_store.get_registration(
-        city_tenant_id,
-        sub,
-      );
-      if (record === null) {
-        return;
-      }
       const flag = opt_in_flag_by_type[type];
-      if (!record.notification_preferences[flag]) {
-        return;
+      // Gated types deliver only when the resident registered and opted in.
+      // Always-on types (flag null, e.g. a reminder they set) deliver regardless.
+      if (flag !== null) {
+        const record = await notifications_store.get_registration(
+          city_tenant_id,
+          sub,
+        );
+        if (record === null || !record.notification_preferences[flag]) {
+          return;
+        }
       }
       await pending_notifications_store.enqueue(city_tenant_id, sub, {
         type,
@@ -100,7 +104,7 @@ export function create_notifications_service(
       const records = await notifications_store.list_registrations(city_tenant_id);
       const flag = opt_in_flag_by_type[type];
       for (const record of records) {
-        if (!record.notification_preferences[flag]) {
+        if (flag !== null && !record.notification_preferences[flag]) {
           continue;
         }
         await pending_notifications_store.enqueue(city_tenant_id, record.sub, {

@@ -18,7 +18,7 @@ export interface assistant_config {
 
 // ---- downstream service identifiers ----
 
-export type downstream_service = "ap-civic" | "ap-utility";
+export type downstream_service = "ap-civic" | "ap-utility" | "ap-reminders";
 
 // ---- tool-request ports (this module owns these interfaces; ap-server injects adapters) ----
 
@@ -42,6 +42,7 @@ export interface tool_request_port {
 export interface tool_request_ports {
   "ap-civic": tool_request_port;
   "ap-utility": tool_request_port;
+  "ap-reminders": tool_request_port;
 }
 
 // ---- llm port (this module owns it; ap-server injects an Anthropic adapter) ----
@@ -142,11 +143,46 @@ export interface voice_query_input {
   transcript: string;
 }
 
-// Streamed text chunk emitted back to the caller (SSE or ws).
-export interface response_chunk {
+// Streamed text fragment emitted back to the caller (SSE or ws).
+export interface text_chunk {
   type: "text";
   text: string;
 }
+
+// Emitted once after the assistant sets a reminder, so the caller can record it
+// and render a confirmation chip. when is the human display label; scheduled_at
+// is the ISO instant the reminder fires.
+export interface reminder_chunk {
+  type: "reminder";
+  title: string;
+  body: string;
+  when: string;
+  scheduled_at: string;
+}
+
+// Emitted when a reply is grounded in live data from a source module, so the
+// caller can render a provenance line ("<source> · synced <time>") under it.
+export interface source_chunk {
+  type: "source";
+  source: string; // human source label, e.g. "Utility account"
+  synced_at: string; // human sync-time label, e.g. "9:12 AM"
+}
+
+// Emitted when a data source could not be reached for a reply, so the caller can
+// render a failure bubble naming the source with a retry/re-link action.
+export interface source_failure_chunk {
+  type: "source_failure";
+  source: string; // the source that failed, e.g. "Utility account"
+  reason: string; // short failure reason
+  action: "retry" | "relink"; // suggested recovery the client offers
+}
+
+// Streamed chunk emitted back to the caller (SSE or ws).
+export type response_chunk =
+  | text_chunk
+  | reminder_chunk
+  | source_chunk
+  | source_failure_chunk;
 
 // ---- pending confirmation state ----
 

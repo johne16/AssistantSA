@@ -23,6 +23,11 @@ import type {
   utility_resource,
 } from "ap-utility";
 import type { assistant_handler } from "ap-assistant";
+import type { reminders_handler, set_reminder_params } from "ap-reminders";
+import type {
+  notifications_handler,
+  notification_preferences,
+} from "ap-notifications";
 
 import type { tenant_claims, token_verifier } from "./adapters/token.js";
 
@@ -30,6 +35,8 @@ export interface gateway_modules {
   civic: civic_handler;
   utility: utility_handler;
   assistant: assistant_handler;
+  reminders: reminders_handler;
+  notifications: notifications_handler;
   token_verifier: token_verifier;
 }
 
@@ -85,7 +92,7 @@ export function create_gateway(modules: gateway_modules): express.Express {
       const { claims } = auth;
       const { operation, params } = req.body as {
         operation: civic_resource;
-        params: { address?: string; kind?: my_area_kind };
+        params: { kind?: my_area_kind };
       };
       const result = await modules.civic.civic_read(operation, params ?? {}, {
         sub: claims.sub,
@@ -237,6 +244,111 @@ export function create_gateway(modules: gateway_modules): express.Express {
     }
   });
 
+  // POST /reminders/set { tenant_context_token, title, body, scheduled_at }
+  app.post("/reminders/set", async (req: Request, res: Response) => {
+    const auth = await authenticate(req, res);
+    if (!auth) return;
+    try {
+      const { claims } = auth;
+      const { title, body, scheduled_at } = req.body as set_reminder_params;
+      const entry = await modules.reminders.set_reminder(
+        { title, body, scheduled_at },
+        { sub: claims.sub, city_tenant_id: claims.city_tenant_id },
+      );
+      res.json(entry);
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  // POST /reminders/list { tenant_context_token } -> reminder_entry[]
+  app.post("/reminders/list", async (req: Request, res: Response) => {
+    const auth = await authenticate(req, res);
+    if (!auth) return;
+    try {
+      const { claims } = auth;
+      const entries = await modules.reminders.list_reminders({
+        sub: claims.sub,
+        city_tenant_id: claims.city_tenant_id,
+      });
+      res.json(entries);
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  // POST /reminders/dismiss { tenant_context_token, reminder_id }
+  app.post("/reminders/dismiss", async (req: Request, res: Response) => {
+    const auth = await authenticate(req, res);
+    if (!auth) return;
+    try {
+      const { claims } = auth;
+      const { reminder_id } = req.body as { reminder_id: string };
+      await modules.reminders.dismiss_reminder(reminder_id, {
+        sub: claims.sub,
+        city_tenant_id: claims.city_tenant_id,
+      });
+      res.status(204).end();
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  // POST /notifications/registrations { tenant_context_token, notification_preferences }
+  app.post("/notifications/registrations", async (req: Request, res: Response) => {
+    const auth = await authenticate(req, res);
+    if (!auth) return;
+    try {
+      const { token } = auth;
+      const { notification_preferences } = req.body as {
+        notification_preferences: notification_preferences;
+      };
+      await modules.notifications.register({
+        tenant_context_token: token,
+        notification_preferences,
+      });
+      res.status(204).end();
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  // POST /notifications/registrations/read { tenant_context_token } -> prefs | null
+  app.post("/notifications/registrations/read", async (req: Request, res: Response) => {
+    const auth = await authenticate(req, res);
+    if (!auth) return;
+    try {
+      const { token } = auth;
+      const prefs = await modules.notifications.get_preferences({
+        tenant_context_token: token,
+      });
+      res.json(prefs);
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  // POST /notifications/pending { tenant_context_token } -> { notifications: [...] }
+  app.post("/notifications/pending", async (req: Request, res: Response) => {
+    const auth = await authenticate(req, res);
+    if (!auth) return;
+    try {
+      const { token } = auth;
+      const pending = await modules.notifications.poll({ tenant_context_token: token });
+      // Flatten each pending_delivery to the client's pending_notification shape.
+      res.json({
+        notifications: pending.map((p) => ({
+          type: p.type,
+          title: p.notification.title,
+          body: p.notification.body,
+          data: p.notification.data ?? {},
+        })),
+      });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
   // POST /assistant/query -> SSE stream of { type: "token", data: { text } }.
   app.post("/assistant/query", async (req: Request, res: Response) => {
     const auth = await authenticate(req, res);
@@ -255,7 +367,36 @@ export function create_gateway(modules: gateway_modules): express.Express {
         tenant_context_token: token,
         message,
       })) {
-        write_sse(res, "token", JSON.stringify({ text: chunk.text }));
+        if (chunk.type === "reminder") {
+          write_sse(
+            res,
+            "reminder",
+            JSON.stringify({
+              title: chunk.title,
+              body: chunk.body,
+              when: chunk.when,
+              scheduled_at: chunk.scheduled_at,
+            }),
+          );
+        } else if (chunk.type === "source") {
+          write_sse(
+            res,
+            "source",
+            JSON.stringify({ source: chunk.source, synced_at: chunk.synced_at }),
+          );
+        } else if (chunk.type === "source_failure") {
+          write_sse(
+            res,
+            "source_failure",
+            JSON.stringify({
+              source: chunk.source,
+              reason: chunk.reason,
+              action: chunk.action,
+            }),
+          );
+        } else {
+          write_sse(res, "token", JSON.stringify({ text: chunk.text }));
+        }
       }
       write_sse(res, "done", "{}");
     } catch (err) {

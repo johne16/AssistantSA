@@ -49,6 +49,17 @@ pub enum VoiceError {
     FrameDropped,
 }
 
+/// A reminder the assistant set during a turn, forwarded to the client so it can
+/// record it and render a confirmation chip. Mirrors the assistant's reminder
+/// chunk; when is the human display label, scheduled_at the ISO instant.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReminderPayload {
+    pub title: String,
+    pub body: String,
+    pub when: String,
+    pub scheduled_at: String,
+}
+
 /// Outbound events on the client duplex socket. Audio is never persisted.
 #[derive(Debug, Clone)]
 pub enum ResponseEvent {
@@ -62,6 +73,16 @@ pub enum ResponseEvent {
     UserTranscript(String),
     /// Assistant reply text for the shared chat thread.
     AssistantTranscript(String),
+    /// A reminder the assistant set; forwarded as a text frame to the client.
+    Reminder(ReminderPayload),
+}
+
+/// One event from the assistant token stream: an incremental text token, or a
+/// reminder the assistant set mid-turn.
+#[derive(Debug, Clone)]
+pub enum AssistantEvent {
+    Token(String),
+    Reminder(ReminderPayload),
 }
 
 /// Config. Secrets injected, never hard-coded.
@@ -152,13 +173,18 @@ pub struct ElevenLabsVoiceSettings {
 }
 
 /// Assistant token-stream frame over the localhost WS. ap-assistant streams
-/// { type: "text", text } chunks and signals end with { type: "done" } (or
-/// { type: "error" }).
+/// { type: "text", text } chunks, a { type: "reminder", title, body, when,
+/// scheduled_at } frame when it sets a reminder, and signals end with
+/// { type: "done" } (or { type: "error" }).
 #[derive(Debug, Deserialize)]
 pub struct AssistantToken {
     #[serde(rename = "type")]
     pub kind: Option<String>,
     pub text: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub when: Option<String>,
+    pub scheduled_at: Option<String>,
 }
 
 /// Sentence streamer: folds the assistant token stream into sentences,

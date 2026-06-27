@@ -21,6 +21,17 @@ import type {
   usage_view,
   utility_store,
 } from "ap-utility";
+import type {
+  reminder_due,
+  reminder_entry,
+  reminders_store,
+} from "ap-reminders";
+import type {
+  notification_registration_record,
+  notifications_store,
+  pending_delivery,
+  pending_notifications_store,
+} from "ap-notifications";
 
 function tenant_map<V>(): Map<string, V> {
   return new Map<string, V>();
@@ -178,6 +189,100 @@ export function create_memory_utility_store(): utility_store {
       const key = k(city, sub);
       const list = linked_accounts.get(key) ?? [];
       linked_accounts.set(key, list.filter((a) => a.site_id !== site_id));
+    },
+  };
+}
+
+export function create_memory_reminders_store(): reminders_store {
+  const reminders = new Map<string, reminder_entry[]>(); // key city|sub
+  const tenants = new Set<string>();
+  const k = (city: string, sub: string) => `${city}|${sub}`;
+
+  return {
+    async create_reminder(city, sub, entry: reminder_entry) {
+      tenants.add(city);
+      const key = k(city, sub);
+      const list = reminders.get(key) ?? [];
+      const next = list.filter((r) => r.reminder_id !== entry.reminder_id);
+      next.push(entry);
+      reminders.set(key, next);
+    },
+    async list_reminders(city, sub): Promise<reminder_entry[]> {
+      return [...(reminders.get(k(city, sub)) ?? [])].sort(
+        (a, b) =>
+          new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime(),
+      );
+    },
+    async set_status(city, sub, reminder_id, status, delivered_at) {
+      const key = k(city, sub);
+      const list = reminders.get(key) ?? [];
+      reminders.set(
+        key,
+        list.map((r) =>
+          r.reminder_id === reminder_id ? { ...r, status, delivered_at } : r,
+        ),
+      );
+    },
+    async list_due(city, before_iso): Promise<reminder_due[]> {
+      // Compare as instants, not strings: scheduled_at may carry a UTC offset
+      // while before_iso is a Z timestamp, so a lexical compare is wrong.
+      const cutoff = new Date(before_iso).getTime();
+      const out: reminder_due[] = [];
+      for (const [key, list] of reminders) {
+        const [c, sub] = key.split("|");
+        if (c !== city || !sub) continue;
+        for (const entry of list) {
+          if (
+            entry.status === "upcoming" &&
+            new Date(entry.scheduled_at).getTime() <= cutoff
+          ) {
+            out.push({ sub, entry });
+          }
+        }
+      }
+      return out;
+    },
+    async list_tenants() {
+      return [...tenants];
+    },
+  };
+}
+
+export function create_memory_notifications_store(): notifications_store {
+  const registrations = new Map<string, notification_registration_record>(); // key city|sub
+  const k = (city: string, sub: string) => `${city}|${sub}`;
+  return {
+    async upsert_registration(city, record) {
+      registrations.set(k(city, record.sub), record);
+    },
+    async get_registration(city, sub) {
+      return registrations.get(k(city, sub)) ?? null;
+    },
+    async list_registrations(city) {
+      const out: notification_registration_record[] = [];
+      for (const [key, record] of registrations) {
+        if (key.startsWith(`${city}|`)) out.push(record);
+      }
+      return out;
+    },
+  };
+}
+
+export function create_memory_pending_notifications_store(): pending_notifications_store {
+  const pending = new Map<string, pending_delivery[]>(); // key city|sub
+  const k = (city: string, sub: string) => `${city}|${sub}`;
+  return {
+    async enqueue(city, sub, delivery) {
+      const key = k(city, sub);
+      const list = pending.get(key) ?? [];
+      list.push(delivery);
+      pending.set(key, list);
+    },
+    async drain(city, sub) {
+      const key = k(city, sub);
+      const list = pending.get(key) ?? [];
+      pending.set(key, []);
+      return list;
     },
   };
 }

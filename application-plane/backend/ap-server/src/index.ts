@@ -20,18 +20,34 @@ import {
   create_tool_registry,
   seed_tools,
 } from "ap-assistant";
+import {
+  create_reminders_handler,
+  type notifier as reminders_notifier,
+} from "ap-reminders";
+import {
+  create_notifications_handler,
+  type notification as notification_payload,
+} from "ap-notifications";
+
+import { randomUUID } from "node:crypto";
 
 import { load_config, resolve_listen_address } from "./config.js";
 import type { server_config } from "./types.js";
-import { create_token_verifier } from "./adapters/token.js";
+import { create_token_verifier, create_claims_decoder } from "./adapters/token.js";
 import {
   create_pool,
   create_civic_store,
   create_utility_store,
+  create_reminders_store,
+  create_notifications_store,
+  create_pending_notifications_store,
 } from "./adapters/postgres.js";
 import {
   create_memory_civic_store,
   create_memory_utility_store,
+  create_memory_reminders_store,
+  create_memory_notifications_store,
+  create_memory_pending_notifications_store,
 } from "./adapters/memory.js";
 import { create_anthropic_llm } from "./adapters/anthropic.js";
 import { create_session_store } from "./adapters/redis.js";
@@ -94,6 +110,35 @@ function build_sidecar_specs(config: server_config): sidecar_spec[] {
   ];
 }
 
+// Coerce an unknown field to a string, defaulting to "".
+function str_field(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+// Compose a resident-facing notification from a raw ap-utility record. The
+// notifier port carries the stored bill/outage object; ap-notifications wants a
+// title + body, with the raw fields preserved in data for the client deep-link.
+function compose_utility_notification(
+  type: "bill_due" | "power_outage",
+  n: Record<string, unknown>,
+): notification_payload {
+  if (type === "bill_due") {
+    const due = str_field(n["due_date"]);
+    return {
+      title: "Utility bill due",
+      body: due ? `A utility bill is due ${due}.` : "A utility bill is due soon.",
+      data: { ...n },
+    };
+  }
+  const address = str_field(n["address"]);
+  const status = str_field(n["status"]);
+  return {
+    title: "Power status update",
+    body: address ? `Outage status ${status} at ${address}.` : `Outage status ${status}.`,
+    data: { ...n },
+  };
+}
+
 async function main(): Promise<void> {
   const config = load_config();
 
@@ -120,14 +165,63 @@ async function main(): Promise<void> {
   const utility_store = pool
     ? create_utility_store(pool)
     : create_memory_utility_store();
+  const reminders_store = pool
+    ? create_reminders_store(pool)
+    : create_memory_reminders_store();
+  const notifications_store = pool
+    ? create_notifications_store(pool)
+    : create_memory_notifications_store();
+  const pending_notifications_store = pool
+    ? create_pending_notifications_store(pool)
+    : create_memory_pending_notifications_store();
   console.log(
     `[ap-server] persistence: ${pool ? "postgres (schema-per-city)" : "in-memory fallback"}`,
   );
 
-  // ap-notifications is disconnected in this build. ap-civic and ap-utility keep
-  // their notifier ports but are wired to no-op notifiers, so nothing is queued.
-  const noop_civic_notifier: civic_notifier = { async notify() {} };
-  const noop_utility_notifier: utility_notifier = { async notify() {} };
+  // ap-notifications: per-resident opt-in store + pending-delivery queue. The
+  // client polls /notifications/pending and raises a local notification per item.
+  const notifications = create_notifications_handler({
+    notifications_store,
+    pending_notifications_store,
+    token_verifier,
+    claims_decoder: create_claims_decoder(),
+  });
+
+  // Producer notifiers: each source module enqueues deliveries through
+  // ap-notifications, which gates them on the resident's per-type opt-in.
+  // ap-civic alerts are city-wide (no single recipient); ap-utility and
+  // ap-reminders deliveries target the one resident the record belongs to.
+  const civic_notifier_adapter: civic_notifier = {
+    async notify(request) {
+      await notifications.notify_city(request.city_tenant_id, request.type, {
+        title: request.notification.title,
+        body: request.notification.body,
+        data: { entry_id: request.notification.entry_id },
+      });
+    },
+  };
+  const utility_notifier_adapter: utility_notifier = {
+    async notify(token, request) {
+      await notifications.notify_scheduled(
+        token.city_tenant_id,
+        token.sub,
+        request.type,
+        compose_utility_notification(request.type, request.notification),
+      );
+    },
+  };
+  // A reminder the resident set is always delivered (the "reminder" type has no
+  // opt-in); it goes to the resident who created it.
+  const reminders_notifier_adapter: reminders_notifier = {
+    async notify(token, request) {
+      const n = request.notification;
+      await notifications.notify_scheduled(token.city_tenant_id, token.sub, "reminder", {
+        title: str_field(n["title"]),
+        body: str_field(n["body"]),
+        data: { reminder_id: str_field(n["reminder_id"]), scheduled_at: str_field(n["scheduled_at"]) },
+      });
+    },
+  };
 
   // Data-access layer: read-any, write-own. Modules get read windows onto data
   // they do not own through here; the underlying tables stay owned by one module.
@@ -165,7 +259,7 @@ async function main(): Promise<void> {
     data_reader: civic_data_reader,
     page_fetcher: create_page_fetcher(config.crawl_service_url),
     gis_reader: create_gis_reader(config.geocode_url),
-    notifier: noop_civic_notifier,
+    notifier: civic_notifier_adapter,
     token_verifier,
     clock,
   });
@@ -181,8 +275,18 @@ async function main(): Promise<void> {
     },
     store: utility_store,
     utility_systems: create_utility_systems_reader(),
-    notifier: noop_utility_notifier,
+    notifier: utility_notifier_adapter,
     clock,
+    token_verifier,
+  });
+
+  // --- ap-reminders ---
+  const reminders = create_reminders_handler({
+    config: { token_verification_public_key: config.token_verification_public_key },
+    store: reminders_store,
+    notifier: reminders_notifier_adapter,
+    clock,
+    id_source: { next: () => randomUUID() },
     token_verifier,
   });
 
@@ -197,7 +301,7 @@ async function main(): Promise<void> {
     }),
     store: create_session_store(config.redis_url),
     registry,
-    ports: create_tool_request_ports(civic, utility),
+    ports: create_tool_request_ports(civic, utility, reminders),
     has_api_key: Boolean(config.claude_api_key),
     max_message_history: config.max_message_history,
   });
@@ -211,6 +315,8 @@ async function main(): Promise<void> {
     civic,
     utility,
     assistant,
+    reminders,
+    notifications,
     token_verifier,
   });
 
@@ -247,6 +353,7 @@ async function main(): Promise<void> {
   const scheduler = start_scheduler({
     civic,
     utility,
+    reminders,
     intervals: config.scheduler_intervals,
   });
 

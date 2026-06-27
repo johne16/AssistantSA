@@ -1,78 +1,43 @@
 // m-res-portal owns its own view and navigation types. Backend data shapes are
-// owned by the client modules (m-res-civic, m-res-accounts) and consumed through
-// their hooks; the portal does not redefine them.
+// owned by the client modules (m-res-civic, m-res-accounts, m-res-reminders) and
+// consumed through their hooks; the portal does not redefine them.
+//
+// The app is the four-surface "Bex" concept: Chat, Feed, Accounts, Settings.
 
 // Bottom tab identities. One tab owns a set of panels.
-export type tab_id = "home" | "city" | "utility" | "ask" | "discover";
+export type tab_id = "chat" | "feed" | "accounts" | "settings";
 
-// Every routable panel in the app. Hub panels list sections; leaf panels are
-// individual screens reached from a hub with a back link. This list is not
-// exhaustive of the product; add panels here as screens are added.
+// Every routable panel. Accounts owns the add-account form as a leaf; the other
+// surfaces are single panels.
 export type panel_id =
-  | "home"
-  | "profile"
-  | "preferences"
-  // city
-  | "city_hub"
-  | "civic_alerts"
-  | "civic_events"
-  | "collection"
-  | "agencies"
-  | "my_area"
-  | "find_rep"
-  | "area_school"
-  | "area_neighborhood"
-  | "three_one_one"
-  // utility
-  | "utility_hub"
-  | "utility_bills"
-  | "utility_usage"
-  | "utility_accounts"
-  | "power_status"
-  // discover
-  | "discovery"
-  // ask
-  | "chat";
+  | "chat"
+  | "feed"
+  | "accounts"
+  | "add_account"
+  | "settings";
 
 // The owning tab for a panel, used to light the correct tab on navigation.
 export const panel_tab: Record<panel_id, tab_id> = {
-  home: "home",
-  profile: "home",
-  preferences: "home",
-  city_hub: "city",
-  civic_alerts: "city",
-  civic_events: "city",
-  collection: "city",
-  agencies: "city",
-  my_area: "city",
-  find_rep: "city",
-  area_school: "city",
-  area_neighborhood: "city",
-  three_one_one: "city",
-  utility_hub: "utility",
-  utility_bills: "utility",
-  utility_usage: "utility",
-  utility_accounts: "utility",
-  power_status: "utility",
-  discovery: "discover",
-  chat: "ask",
+  chat: "chat",
+  feed: "feed",
+  accounts: "accounts",
+  add_account: "accounts",
+  settings: "settings",
 };
 
 // The default panel each tab opens to.
 export const tab_root: Record<tab_id, panel_id> = {
-  home: "home",
-  city: "city_hub",
-  utility: "utility_hub",
-  ask: "chat",
-  discover: "discovery",
+  chat: "chat",
+  feed: "feed",
+  accounts: "accounts",
+  settings: "settings",
 };
 
-// A bottom tab entry: identity, label, glyph, and whether it is the center ask tab.
+// A bottom tab entry: identity, label, and glyph.
 export interface tab_def {
   id: tab_id;
   label: string;
   glyph: string;
-  ask?: boolean;
 }
 
 // Linked utility account, tracked in portal state. site_id keys the keystore + sync.
@@ -82,8 +47,8 @@ export interface linked_account {
   sign_in_url: string;
 }
 
-// Resident profile entered in the profile screen, owned by the portal. Empty
-// strings until the resident fills them in; no values are seeded.
+// Resident profile entered in Settings, owned by the portal. Empty strings until
+// the resident fills them in; no values are seeded.
 export interface resident_profile {
   street: string;
   zip: string;
@@ -99,28 +64,42 @@ export interface portal_nav {
   select_panel: (id: panel_id) => void;
 }
 
-// Per-account sync display state the utility screens bind their refresh icon to.
-// Held from sync start until a sync_result lands, then settled to last_synced.
+// Per-account sync display state the accounts/feed screens bind to. Held from
+// sync start until a sync_result lands, then settled to last_synced.
 export interface sync_ui_state {
   syncing: boolean;
   last_synced_at: number | null; // epoch ms of last settled sync, null if never
   error: string | null;
 }
 
-// One row in the home-screen alert feed. The feed aggregates city alerts,
-// utility outages, events, and bill-due items, each included only when its
-// preference toggle is on. The feed renders titles only.
+// Severity tiers for the Feed time spine (per CAP severity). critical: pinned,
+// acknowledged, life-safety (city/AHAS emergency, boil-water, gas). important:
+// utility outages, bill due, usage spikes. routine: service-schedule shifts.
+// upcoming: a scheduled reminder that has not fired.
+export type feed_tier = "critical" | "important" | "routine" | "upcoming";
+
+// Which lane of the feed an item sits in.
+export type feed_lane = "triggered" | "upcoming";
+
+// One rendered row on the Feed spine, merged from civic alerts and reminders.
 export interface feed_item {
   id: string;
+  lane: feed_lane;
+  tier: feed_tier;
+  kind_label: string; // e.g. "Alert · SAWS", "Reminder · you asked"
+  when_display: string;
   title: string;
+  body: string;
+  // critical items are acknowledged, never swiped or bulk-cleared.
+  dismissible: boolean;
 }
 
-// Per-type opt-in toggles surfaced by the preferences screen. They gate which
-// sources the home feed aggregates. Owned by the portal; the notifications
-// module is disconnected in this build.
+// Per-type opt-in toggles surfaced by Settings. Owned by the portal; the
+// notifications module is disconnected in this build.
 export interface notification_preferences {
+  push_enabled: boolean;
   utility_alert_enabled: boolean;
   city_alert_enabled: boolean;
-  bills_reminder_enabled: boolean;
   event_reminder_enabled: boolean;
+  bills_reminder_enabled: boolean;
 }

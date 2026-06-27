@@ -5,7 +5,7 @@
 // from the keystore at scrape time and handed to the scrape-runner; they never
 // reach the gateway.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 
 import { app_config } from "@/app-config";
 import { use_resident_session } from "@/m-res-auth";
@@ -275,14 +275,8 @@ export function use_accounts(
     [emit, max_concurrent, run_site],
   );
 
-  // Self-initiated startup scrape of all linked accounts, once on mount.
-  const started = useRef(false);
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    // Startup site list is not yet known here; the portal supplies linked
-    // site_ids and calls sync_all. Left as a no-op hook anchor.
-  }, []);
+  // Startup and resume scrapes are driven by the portal, which owns the linked
+  // site_ids and calls sync_all on app open.
 
   return {
     utility_view_request,

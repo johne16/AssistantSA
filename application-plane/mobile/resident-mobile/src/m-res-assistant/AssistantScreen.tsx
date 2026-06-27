@@ -15,10 +15,12 @@ import { send_assistant_query } from "./chat-client";
 import { open_voice_stream } from "./voice-client";
 import { use_audio_io } from "./audio-io";
 import type {
+  assistant_reminder_payload,
   chat_turn,
   voice_status,
   voice_transcript_event,
 } from "./types";
+// chat_turn carries the optional source/failure/retry fields rendered below.
 import type { voice_session } from "./voice-client";
 import type { theme as shell_theme } from "@/m-res-shell";
 
@@ -37,6 +39,12 @@ function next_turn_id(): string {
 export function AssistantScreen(props: {
   voice_id: string;
   keyboard_offset: number;
+  // Called when the assistant sets a reminder (text or voice). The portal owns
+  // where it is stored; this module stays decoupled from m-res-reminders.
+  on_set_reminder: (reminder: assistant_reminder_payload) => void;
+  // Navigate to the accounts screen so the resident can re-link a provider whose
+  // sync failed. Optional; when absent, a re-link action falls back to a retry.
+  on_relink_account?: () => void;
 }) {
   "use no memo";
   const t = use_theme();
@@ -87,6 +95,68 @@ export function AssistantScreen(props: {
     [scroll_to_end],
   );
 
+  // Open the SSE stream for one query and route its events onto an existing
+  // assistant reply turn. Shared by a fresh submit and a retry of a failed turn.
+  const open_stream = useCallback(
+    (reply_id: string, message: string) => {
+      set_sending(true);
+      close_chat_ref.current = send_assistant_query(tenant_context_token, message, {
+        on_token: (text) => upsert_turn(reply_id, "assistant", text, true, true),
+        on_reminder: (r) => {
+          // Hand the reminder to the portal (it stores it; Feed reads it) and
+          // attach a chip to the assistant reply instead of leaving it as prose.
+          props.on_set_reminder(r);
+          set_turns((prev) =>
+            prev.map((turn) =>
+              turn.id === reply_id
+                ? { ...turn, reminder: { title: r.title, when: r.when } }
+                : turn,
+            ),
+          );
+        },
+        on_source: (s) => {
+          // synced_at is the time the data was recorded to the DB; omit the
+          // "synced" tail when the source carries no such timestamp.
+          const label = s.synced_at ? `${s.source} · synced ${s.synced_at}` : s.source;
+          set_turns((prev) =>
+            prev.map((turn) =>
+              turn.id === reply_id ? { ...turn, source: label } : turn,
+            ),
+          );
+        },
+        on_source_failure: (f) => {
+          set_turns((prev) =>
+            prev.map((turn) =>
+              turn.id === reply_id
+                ? { ...turn, pending: false, error: true, failure: f }
+                : turn,
+            ),
+          );
+        },
+        on_done: () => {
+          upsert_turn(reply_id, "assistant", "", false, true);
+          set_sending(false);
+        },
+        on_error: (msg) => {
+          set_turns((prev) =>
+            prev.map((turn) =>
+              turn.id === reply_id
+                ? {
+                    ...turn,
+                    pending: false,
+                    error: true,
+                    text: turn.text.length > 0 ? turn.text : msg,
+                  }
+                : turn,
+            ),
+          );
+          set_sending(false);
+        },
+      });
+    },
+    [tenant_context_token, upsert_turn, props.on_set_reminder],
+  );
+
   const submit = useCallback(() => {
     const message = draft.trim();
     if (!message || sending) return;
@@ -95,21 +165,45 @@ export function AssistantScreen(props: {
     const reply_id = next_turn_id();
     upsert_turn(user_id, "user", message, false, false);
     upsert_turn(reply_id, "assistant", "", true, false);
+    // Remember the prompt on the reply so a failed turn can be retried.
+    set_turns((prev) =>
+      prev.map((turn) =>
+        turn.id === reply_id ? { ...turn, retry_message: message } : turn,
+      ),
+    );
     set_draft("");
-    set_sending(true);
+    open_stream(reply_id, message);
+  }, [draft, sending, upsert_turn, open_stream]);
 
-    close_chat_ref.current = send_assistant_query(tenant_context_token, message, {
-      on_token: (text) => upsert_turn(reply_id, "assistant", text, true, true),
-      on_done: () => {
-        upsert_turn(reply_id, "assistant", "", false, true);
-        set_sending(false);
-      },
-      on_error: (msg) => {
-        upsert_turn(reply_id, "assistant", `\n[${msg}]`, false, true);
-        set_sending(false);
-      },
-    });
-  }, [draft, sending, tenant_context_token, upsert_turn]);
+  // Retry a failed turn in place: clear its error state and reopen the stream
+  // with the stored prompt, without adding a duplicate user message.
+  const retry_turn = useCallback(
+    (turn: chat_turn) => {
+      if (!turn.retry_message || sending) return;
+      const message = turn.retry_message;
+      set_turns((prev) =>
+        prev.map((t) => {
+          if (t.id !== turn.id) return t;
+          const { failure, ...rest } = t;
+          return { ...rest, error: false, text: "", pending: true };
+        }),
+      );
+      open_stream(turn.id, message);
+    },
+    [sending, open_stream],
+  );
+
+  // A failed turn's action button: re-link the provider when offered, else retry.
+  const on_failure_action = useCallback(
+    (turn: chat_turn) => {
+      if (turn.failure?.action === "relink" && props.on_relink_account) {
+        props.on_relink_account();
+        return;
+      }
+      retry_turn(turn);
+    },
+    [retry_turn, props.on_relink_account],
+  );
 
   // Route a transcript event into the matching streaming bubble.
   const on_transcript = useCallback(
@@ -154,6 +248,31 @@ export function AssistantScreen(props: {
       voice_id,
       {
         on_transcript,
+        on_reminder: (r) => {
+          props.on_set_reminder(r);
+          // Attach the chip to the live assistant turn, or a fresh one if none.
+          const aid = voice_turn_ids.current.assistant;
+          if (aid) {
+            set_turns((prev) =>
+              prev.map((turn) =>
+                turn.id === aid
+                  ? { ...turn, reminder: { title: r.title, when: r.when } }
+                  : turn,
+              ),
+            );
+          } else {
+            set_turns((prev) => [
+              ...prev,
+              {
+                id: next_turn_id(),
+                role: "assistant",
+                text: "",
+                pending: false,
+                reminder: { title: r.title, when: r.when },
+              },
+            ]);
+          }
+        },
         on_status: set_voice_state,
         on_error: (message) => {
           console.log("[voice] error:", message);
@@ -162,7 +281,7 @@ export function AssistantScreen(props: {
         },
       },
     );
-  }, [audio, voice_id, on_transcript, stop_voice, tenant_context_token, upsert_turn, tr]);
+  }, [audio, voice_id, on_transcript, stop_voice, tenant_context_token, upsert_turn, tr, props.on_set_reminder]);
 
   const voice_on = voice_state === "live" || voice_state === "connecting";
 
@@ -171,11 +290,11 @@ export function AssistantScreen(props: {
       <View style={styles.header}>
         <View style={styles.brand}>
           <View style={styles.mark}>
-            <Text style={styles.mark_letter}>A</Text>
+            <Text style={styles.mark_letter}>B</Text>
           </View>
           <View>
-            <Text style={styles.title}>AssistantSA</Text>
-            <Text style={styles.sub}>{tr("Your city, handled.")}</Text>
+            <Text style={styles.title}>Bex</Text>
+            <Text style={styles.sub}>{tr("Ask anything. Set reminders.")}</Text>
           </View>
         </View>
         <View style={styles.header_actions}>
@@ -189,7 +308,7 @@ export function AssistantScreen(props: {
               <ActivityIndicator size="small" color={t.color.on_accent} />
             ) : (
               <Text style={[styles.voice_label, voice_on && styles.voice_label_on]}>
-                {voice_on ? tr("Listening") : tr("Voice")}
+                {voice_on ? tr("Voice on") : tr("Voice off")}
               </Text>
             )}
           </Pressable>
@@ -209,21 +328,51 @@ export function AssistantScreen(props: {
           >
             {turn.role === "assistant" && (
               <View style={styles.turn_mark}>
-                <Text style={styles.turn_mark_letter}>A</Text>
+                <Text style={styles.turn_mark_letter}>B</Text>
               </View>
             )}
             <View
               style={[
                 styles.bubble,
                 turn.role === "user" ? styles.bubble_user : styles.bubble_assistant,
+                turn.error && styles.bubble_error,
               ]}
             >
+              {turn.error ? (
+                <Text style={styles.err_head}>
+                  {turn.failure
+                    ? `${tr("Couldn't reach")} ${turn.failure.source}`
+                    : tr("Can't do that")}
+                </Text>
+              ) : null}
               <Text
                 style={turn.role === "user" ? styles.bubble_text_user : styles.bubble_text}
               >
                 {turn.text}
                 {turn.pending && turn.text.length === 0 ? "..." : ""}
               </Text>
+              {turn.failure ? (
+                <Pressable
+                  onPress={() => on_failure_action(turn)}
+                  style={styles.retry_btn}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.retry_label}>
+                    {turn.failure.action === "relink"
+                      ? tr("Update login")
+                      : tr("Retry")}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {turn.source ? (
+                <Text style={styles.msg_src}>{turn.source}</Text>
+              ) : null}
+              {turn.reminder ? (
+                <View style={styles.rem_chip}>
+                  <Text style={styles.rem_title}>{turn.reminder.title}</Text>
+                  <Text style={styles.rem_when}>{turn.reminder.when}</Text>
+                </View>
+              ) : null}
             </View>
           </View>
         ))}
@@ -357,6 +506,62 @@ function build_styles(t: shell_theme) {
       fontSize: 15,
       lineHeight: 22,
       color: t.color.on_primary,
+    },
+    bubble_error: {
+      borderColor: t.color.danger,
+      backgroundColor: t.color.danger_soft,
+    },
+    err_head: {
+      fontFamily: t.font.mono,
+      fontSize: 10,
+      letterSpacing: 1,
+      textTransform: "uppercase",
+      color: t.color.danger,
+      marginBottom: 5,
+    },
+    retry_btn: {
+      marginTop: t.spacing.sm,
+      alignSelf: "flex-start",
+      borderRadius: t.radius.pill,
+      borderWidth: 1,
+      borderColor: t.color.danger,
+      paddingVertical: 6,
+      paddingHorizontal: t.spacing.md,
+    },
+    retry_label: {
+      fontFamily: t.font.body,
+      fontSize: 13,
+      color: t.color.danger,
+    },
+    msg_src: {
+      marginTop: 7,
+      paddingTop: 7,
+      borderTopWidth: 1,
+      borderTopColor: t.color.border,
+      fontFamily: t.font.mono,
+      fontSize: 10,
+      color: t.color.ink_subtle,
+    },
+    rem_chip: {
+      marginTop: t.spacing.sm,
+      borderWidth: 1,
+      borderColor: t.color.border_strong,
+      borderRadius: t.radius.sm,
+      backgroundColor: t.color.surface,
+      paddingVertical: 10,
+      paddingHorizontal: t.spacing.md,
+    },
+    rem_title: {
+      fontFamily: t.font.body,
+      fontWeight: "700",
+      fontSize: 13.5,
+      color: t.color.ink,
+    },
+    rem_when: {
+      marginTop: 1,
+      fontFamily: t.font.mono,
+      fontSize: 11,
+      color: t.color.primary,
     },
     dock: {
       paddingHorizontal: t.spacing.lg,

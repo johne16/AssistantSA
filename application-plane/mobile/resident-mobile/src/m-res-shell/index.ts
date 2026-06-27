@@ -1,4 +1,4 @@
-export { ThemeProvider, use_theme } from "./theme";
+export { ThemeProvider, use_theme, use_theme_mode } from "./theme";
 export { LangProvider, use_lang, use_t } from "./i18n";
 export { shell_fonts } from "./fonts";
 export { light_color, dark_color, spacing, radius, font } from "./tokens";
