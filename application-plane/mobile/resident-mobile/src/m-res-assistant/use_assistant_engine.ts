@@ -39,6 +39,7 @@ export function use_assistant_engine(props: {
   // sync failed. Optional; when absent, a re-link action falls back to a retry.
   on_relink_account?: () => void;
 }): assistant_engine {
+  "use no memo";
   const tr = use_t();
   const { tenant_context_token } = use_resident_session();
   const audio = use_audio_io();
