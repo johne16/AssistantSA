@@ -219,12 +219,14 @@ export function Portal() {
   const reset_idle = useCallback(() => {
     set_idle_visible(false);
     if (idle_timer.current) clearTimeout(idle_timer.current);
-    // Only arm the timer while the wake word is on and no voice session is live:
-    // the idle screen is the ambient listening surface, so a muted wake word or
-    // an active conversation shows no overlay.
-    if (!wake_enabled || engine.voice_on) return;
+    // Only arm the timer while the wake word is on: the idle screen is the
+    // ambient listening surface, so a muted wake word shows no overlay. Once the
+    // overlay is up it stays up (through wake-word voice sessions and after they
+    // end); only a physical touch hides it, via this same handler on the touch
+    // capture path.
+    if (!wake_enabled) return;
     idle_timer.current = setTimeout(() => set_idle_visible(true), IDLE_AFTER_MS);
-  }, [wake_enabled, engine.voice_on]);
+  }, [wake_enabled]);
   // Arm/disarm the timer when the wake word toggles; clear on unmount.
   useEffect(() => {
     reset_idle();

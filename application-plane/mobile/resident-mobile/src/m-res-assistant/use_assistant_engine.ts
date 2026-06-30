@@ -19,6 +19,15 @@ import type { voice_session } from "./voice-client";
 // so it also covers the gap after the assistant responds.
 const voice_silence_timeout_ms = 8000;
 
+// Output level (0..1) at/above which the assistant is treated as audibly
+// playing, mirroring audio-io's playing_level. The silence countdown is held
+// while the assistant is speaking.
+const assistant_playing_level = 0.01;
+// Output-level events fire only while audibly playing; once they stop arriving
+// for this long, the assistant is treated as finished speaking and the silence
+// countdown is armed.
+const playback_settle_ms = 800;
+
 // Owns the assistant's audio engine, chat thread, voice session, and wake-word
 // listener. Mounted once at portal level so the "Hey Bex" listener and the mic
 // engine run on every screen (the wake toggle is portal-level), not only while
@@ -58,6 +67,10 @@ export function use_assistant_engine(props: {
   const close_chat_ref = useRef<(() => void) | null>(null);
   const voice_ref = useRef<voice_session | null>(null);
   const silence_timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Holds the silence countdown until the assistant's output level events stop
+  // (playback finished). Unsubscribes the level listener on session teardown.
+  const playback_watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const output_level_unsub = useRef<(() => void) | null>(null);
   // Whether the live session arms the silence timeout. Wake-word sessions do;
   // a manual voice toggle stays open until toggled off.
   const silence_enabled = useRef(false);
@@ -219,6 +232,12 @@ export function use_assistant_engine(props: {
       clearTimeout(silence_timer.current);
       silence_timer.current = null;
     }
+    if (playback_watchdog.current) {
+      clearTimeout(playback_watchdog.current);
+      playback_watchdog.current = null;
+    }
+    output_level_unsub.current?.();
+    output_level_unsub.current = null;
     voice_ref.current?.stop();
     voice_ref.current = null;
     voice_turn_ids.current = { user: null, assistant: null };
@@ -252,6 +271,9 @@ export function use_assistant_engine(props: {
   useEffect(() => {
     return () => {
       if (silence_timer.current) clearTimeout(silence_timer.current);
+      if (playback_watchdog.current) clearTimeout(playback_watchdog.current);
+      output_level_unsub.current?.();
+      output_level_unsub.current = null;
       voice_ref.current?.stop();
       voice_ref.current = null;
     };
@@ -264,6 +286,21 @@ export function use_assistant_engine(props: {
   const start_voice = useCallback((silence_timeout = true) => {
     if (voice_ref.current) return;
     silence_enabled.current = silence_timeout;
+    // Hold the silence countdown until the assistant is fully finished speaking.
+    // Output-level events fire only while audibly playing: while they arrive the
+    // countdown stays cancelled, and once they stop for playback_settle_ms the
+    // assistant is treated as done speaking and the countdown is armed. Inter-
+    // sentence gaps shorter than playback_settle_ms do not arm it.
+    output_level_unsub.current?.();
+    output_level_unsub.current = audio.on_output_level((level) => {
+      if (level < assistant_playing_level) return;
+      hold_silence();
+      if (playback_watchdog.current) clearTimeout(playback_watchdog.current);
+      playback_watchdog.current = setTimeout(() => {
+        playback_watchdog.current = null;
+        bump_silence();
+      }, playback_settle_ms);
+    });
     voice_ref.current = open_voice_stream(
       tenant_context_token,
       audio,
