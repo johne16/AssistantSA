@@ -453,7 +453,11 @@ export function Portal() {
     >
       <View style={{ flex: 1 }}>{render_body()}</View>
       <View onLayout={(e) => set_chrome_height(e.nativeEvent.layout.height)}>
-        <WakeBar muted={!wake_enabled} onToggle={toggle_wake} />
+        <WakeBar
+          muted={!wake_enabled}
+          triggered={engine.wake_triggered}
+          onToggle={toggle_wake}
+        />
         <TabBar active={active_tab} onSelect={select_tab} feed_badge={feed_badge} />
       </View>
       {/* Off-screen scrape host, mounted once. Drives on-device account syncs;
@@ -461,7 +465,11 @@ export function Portal() {
       <ScrapeRunner ref={runner} />
       {/* Full-screen ambient idle overlay, shown after inactivity and dismissed
           on first touch. Above the tab bar so it covers the entire screen. */}
-      <IdleOverlay audio={engine.audio} visible={idle_visible} />
+      <IdleOverlay
+        audio={engine.audio}
+        visible={idle_visible}
+        triggered={engine.wake_triggered}
+      />
     </SafeAreaView>
   );
 }

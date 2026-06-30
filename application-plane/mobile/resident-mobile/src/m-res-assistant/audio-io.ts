@@ -81,6 +81,15 @@ export function use_audio_io(): audio_io {
   const mic_sub = useRef<{ remove: () => void } | null>(null);
   const in_vol_sub = useRef<{ remove: () => void } | null>(null);
   const out_vol_sub = useRef<{ remove: () => void } | null>(null);
+  // Dedupes start_capture: held while capture is running (or starting) so the
+  // wake listener and a voice session can both call start_capture without ever
+  // restarting the engine. Cleared by stop_capture.
+  const capture_promise = useRef<Promise<void> | null>(null);
+  // Fan-out registries. One native mic/level listener feeds every consumer, so
+  // capture is shared continuously instead of one consumer owning the mic.
+  const frame_listeners = useRef<Set<(pcm_base64: string) => void>>(new Set());
+  const barge_listeners = useRef<Set<() => void>>(new Set());
+  const output_listeners = useRef<Set<(level: number) => void>>(new Set());
   // Whether the assistant is currently audibly playing, driven by the engine's
   // output level. This is what makes a user level crossing a real barge-in.
   const assistant_playing = useRef(false);
@@ -92,6 +101,7 @@ export function use_audio_io(): audio_io {
 
   // Drop all in-flight playback: flush the native engine (sample queue plus the
   // AudioTrack buffer) and stop accepting more audio until the next response.
+  // The capture engine stays up, so continuous wake listening is unaffected.
   const flush_playback = (): void => {
     try {
       flush();
@@ -127,43 +137,58 @@ export function use_audio_io(): audio_io {
   if (api.current) return api.current;
 
   api.current = {
-    async start_capture(
-      on_chunk: (pcm_base64: string) => void,
-      on_barge_in: () => void,
-    ): Promise<void> {
-      const permission = await requestMicrophonePermissionsAsync();
-      if (!permission.granted) {
-        throw new Error("microphone permission denied");
-      }
-      await ensure_initialized();
-      // Drop any prior listener so a re-entrant start_capture cannot leak one.
-      mic_sub.current?.remove();
-      // Echo-cancelled PCM frames arrive here; hand them up as base64 for the
-      // socket path.
-      mic_sub.current = addExpoTwoWayAudioEventListener("onMicrophoneData", (event) => {
-        on_chunk(bytes_to_base64(event.data));
-      });
-      // Track whether the assistant is audibly playing from the engine's output
-      // level, so barge-in is only armed while there is speech to interrupt.
-      out_vol_sub.current?.remove();
-      out_vol_sub.current = addExpoTwoWayAudioEventListener("onOutputVolumeLevelData", (event) => {
-        assistant_playing.current = event.data > playing_level;
-      });
-      // Local barge-in: when the (echo-cancelled) input level crosses the
-      // threshold while the assistant is playing, the user is speaking over it;
-      // flush local playback and tell the backend to stop generating.
-      in_vol_sub.current?.remove();
-      in_vol_sub.current = addExpoTwoWayAudioEventListener("onInputVolumeLevelData", (event) => {
-        if (event.data > barge_in_level && assistant_playing.current) {
-          console.log("[voice] barge-in detected, flushing + signaling backend");
-          flush_playback();
-          on_barge_in();
+    start_capture(): Promise<void> {
+      // Idempotent: a single continuous capture is shared by every consumer, so
+      // a second caller (e.g. a voice session while the wake listener is up)
+      // reuses the running engine instead of restarting the mic.
+      if (capture_promise.current) return capture_promise.current;
+      capture_promise.current = (async () => {
+        // Clear the cached promise on any failure so the next call retries
+        // instead of returning a permanently rejected promise (which would wedge
+        // capture after a transient permission or init failure).
+        try {
+          const permission = await requestMicrophonePermissionsAsync();
+          if (!permission.granted) {
+            throw new Error("microphone permission denied");
+          }
+          await ensure_initialized();
+          // Echo-cancelled PCM frames arrive here; encode once and fan out to
+          // every registered consumer (wake detector, pre-roll buffer, session).
+          mic_sub.current?.remove();
+          mic_sub.current = addExpoTwoWayAudioEventListener("onMicrophoneData", (event) => {
+            const pcm_base64 = bytes_to_base64(event.data);
+            frame_listeners.current.forEach((handler) => handler(pcm_base64));
+          });
+          // Track whether the assistant is audibly playing from the engine's
+          // output level (gating barge-in), and fan the level out to subscribers.
+          out_vol_sub.current?.remove();
+          out_vol_sub.current = addExpoTwoWayAudioEventListener("onOutputVolumeLevelData", (event) => {
+            assistant_playing.current = event.data > playing_level;
+            output_listeners.current.forEach((handler) => handler(event.data));
+          });
+          // Local barge-in: when the (echo-cancelled) input level crosses the
+          // threshold while the assistant is playing, the user is speaking over
+          // it; flush local playback and notify subscribers (the session tells
+          // the backend to stop generating).
+          in_vol_sub.current?.remove();
+          in_vol_sub.current = addExpoTwoWayAudioEventListener("onInputVolumeLevelData", (event) => {
+            if (event.data > barge_in_level && assistant_playing.current) {
+              console.log("[voice] barge-in detected, flushing + signaling backend");
+              flush_playback();
+              barge_listeners.current.forEach((handler) => handler());
+            }
+          });
+          // Unmute the mic to begin emitting onMicrophoneData events.
+          toggleRecording(true);
+        } catch (err) {
+          capture_promise.current = null;
+          throw err;
         }
-      });
-      // Unmute the mic to begin emitting onMicrophoneData events.
-      toggleRecording(true);
+      })();
+      return capture_promise.current;
     },
     async stop_capture(): Promise<void> {
+      capture_promise.current = null;
       toggleRecording(false);
       mic_sub.current?.remove();
       mic_sub.current = null;
@@ -171,6 +196,25 @@ export function use_audio_io(): audio_io {
       in_vol_sub.current = null;
       out_vol_sub.current?.remove();
       out_vol_sub.current = null;
+      // Release the native engine; a fresh initialize() runs on the next start.
+      init.current = null;
+      try {
+        tearDown();
+      } catch {
+        // Engine already torn down.
+      }
+    },
+    on_input_frame(handler: (pcm_base64: string) => void): () => void {
+      frame_listeners.current.add(handler);
+      return () => {
+        frame_listeners.current.delete(handler);
+      };
+    },
+    on_barge_in(handler: () => void): () => void {
+      barge_listeners.current.add(handler);
+      return () => {
+        barge_listeners.current.delete(handler);
+      };
     },
     play_chunk(audio_base64: string): void {
       // Drop the barged-out turn's tail until the backend signals the next
@@ -190,31 +234,21 @@ export function use_audio_io(): audio_io {
       // Fresh response turn: stop dropping audio so it plays from the top.
       suppressing.current = false;
     },
-    on_output_level(handler: (level: number) => void): () => void {
-      // Fan the engine's output level out to the idle waveform. Events only
-      // fire while the playback engine is initialized and audibly playing, so
-      // the waveform stays flat unless the assistant is speaking.
-      const sub = addExpoTwoWayAudioEventListener("onOutputVolumeLevelData", (event) => {
-        handler(event.data);
-      });
-      return () => sub.remove();
-    },
-    stop_playback(): void {
-      // Barge-in or close: flush playback, then tear the engine down and force a
-      // fresh initialize() next session.
+    flush_playback(): void {
+      // Barge-in or session close: drop in-flight playback only. The capture
+      // engine stays up so continuous wake listening survives; the engine is
+      // torn down separately by stop_capture when no longer needed.
       flush_playback();
-      mic_sub.current?.remove();
-      mic_sub.current = null;
-      in_vol_sub.current?.remove();
-      in_vol_sub.current = null;
-      out_vol_sub.current?.remove();
-      out_vol_sub.current = null;
-      init.current = null;
-      try {
-        tearDown();
-      } catch {
-        // Engine already torn down.
-      }
+    },
+    on_output_level(handler: (level: number) => void): () => void {
+      // Fan the engine's output level out to the idle waveform from the single
+      // native level listener set up in start_capture. Events only fire while
+      // the playback engine is audibly playing, so the waveform stays flat
+      // unless the assistant is speaking.
+      output_listeners.current.add(handler);
+      return () => {
+        output_listeners.current.delete(handler);
+      };
     },
   };
   return api.current;

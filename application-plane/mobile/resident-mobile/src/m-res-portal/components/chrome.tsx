@@ -89,11 +89,27 @@ function TabIcon(props: { tab: tab_id; color: string }) {
   );
 }
 
+// Green shown on the wake-bar dot while a wake-word detection's voice session is
+// live. Sits on the surface in both themes; not a theme token because it is the
+// only wake-trigger accent in the app.
+const WAKE_TRIGGERED_GREEN = "#2e9e5b";
+
 // Portal-level wake bar (mockup .wake): live dot, wake-word line, mute toggle.
-export function WakeBar(props: { muted: boolean; onToggle: () => void }) {
+// triggered turns the dot green while the wake word has opened a voice session.
+export function WakeBar(props: {
+  muted: boolean;
+  triggered?: boolean;
+  onToggle: () => void;
+}) {
   const t = use_theme();
   const tr = use_t();
   const c = t.color;
+  // Muted: subtle. Triggered (wake fired): green. Listening: the amber signal.
+  const dot_color = props.muted
+    ? c.ink_subtle
+    : props.triggered
+      ? WAKE_TRIGGERED_GREEN
+      : c.signal;
   return (
     <View
       style={{
@@ -112,7 +128,7 @@ export function WakeBar(props: { muted: boolean; onToggle: () => void }) {
           width: 8,
           height: 8,
           borderRadius: 4,
-          backgroundColor: props.muted ? c.ink_subtle : c.signal,
+          backgroundColor: dot_color,
         }}
       />
       <Text

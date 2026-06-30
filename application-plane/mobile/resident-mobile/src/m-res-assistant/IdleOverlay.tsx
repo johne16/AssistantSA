@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, useWindowDimensions } from "react-native";
 import {
   BlurMask,
   Canvas,
+  Circle,
   Fill,
   Group,
   Path,
@@ -11,6 +12,13 @@ import {
 } from "@shopify/react-native-skia";
 import { useDerivedValue, useSharedValue } from "react-native-reanimated";
 import type { audio_io } from "./types";
+
+// Wake-trigger accent: a green ring that pulses over the ambient screen while a
+// wake-word detection's voice session is live, so the resident sees the trigger
+// landed even before the assistant speaks.
+const TRIGGER_RING_COLOR = "#2e9e5b";
+const TRIGGER_RING_RADIUS = 64;
+const TRIGGER_RING_PULSE = 10;
 
 // Full-black ambient idle screen shown while the wake word is listening and no
 // voice session is active. On OLED the black pixels are off, recovering most of
@@ -94,7 +102,11 @@ function channel_peaks(channel: number, level: number, t: number): number[] {
   return y;
 }
 
-export function IdleOverlay(props: { audio: audio_io; visible: boolean }) {
+export function IdleOverlay(props: {
+  audio: audio_io;
+  visible: boolean;
+  triggered?: boolean;
+}) {
   const { width, height } = useWindowDimensions();
   const [dismissed, set_dismissed] = useState(false);
 
@@ -120,6 +132,11 @@ export function IdleOverlay(props: { audio: audio_io; visible: boolean }) {
   const path1 = useDerivedValue(() => build_channel(1, channel_peaks(1, level.value, clock.value)));
   const path2 = useDerivedValue(() => build_channel(2, channel_peaks(2, level.value, clock.value)));
   const paths = [path0, path1, path2];
+
+  // Slow pulse on the wake-trigger ring radius.
+  const ring_radius = useDerivedValue(
+    () => TRIGGER_RING_RADIUS + TRIGGER_RING_PULSE * Math.sin(clock.value * 0.004),
+  );
 
   // Center the 1000x400 reference space in the screen, scaled to full width.
   const scale = width / REF_WIDTH;
@@ -150,6 +167,18 @@ export function IdleOverlay(props: { audio: audio_io; visible: boolean }) {
             );
           })}
         </Group>
+        {props.triggered ? (
+          <Circle
+            cx={width / 2}
+            cy={height / 2}
+            r={ring_radius}
+            color={TRIGGER_RING_COLOR}
+            style="stroke"
+            strokeWidth={3}
+          >
+            <BlurMask blur={12} style="solid" />
+          </Circle>
+        ) : null}
       </Canvas>
     </Pressable>
   );

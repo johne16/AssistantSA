@@ -28,6 +28,14 @@ const assistant_playing_level = 0.01;
 // countdown is armed.
 const playback_settle_ms = 800;
 
+// Capture sample rate (16kHz mono linear16), used to size the pre-roll buffer.
+const capture_sample_rate = 16000;
+// How much speech the rolling pre-roll buffer holds: the audio captured just
+// after the wake word plus the socket-connect window, replayed to the backend
+// once the voice socket opens so the opening of the prompt is never lost.
+const preroll_seconds = 2;
+const preroll_max_samples = capture_sample_rate * preroll_seconds;
+
 // Owns the assistant's audio engine, chat thread, voice session, and wake-word
 // listener. Mounted once at portal level so the "Hey Bex" listener and the mic
 // engine run on every screen (the wake toggle is portal-level), not only while
@@ -62,7 +70,17 @@ export function use_assistant_engine(props: {
   const [draft, set_draft] = useState("");
   const [sending, set_sending] = useState(false);
   const [voice_state, set_voice_state] = useState<voice_status>("idle");
+  // True from a wake-word detection until that voice session ends; drives the
+  // portal's wake-trigger indicators. A manual voice toggle leaves it false.
+  const [wake_triggered, set_wake_triggered] = useState(false);
   const voice_id = props.voice_id;
+
+  // Rolling pre-roll buffer of the most recent captured frames (base64) with a
+  // running sample count, trimmed to preroll_max_samples. Snapshotted on wake
+  // detection and handed to the voice session so the opening words survive the
+  // socket-connect delay.
+  const preroll_ring = useRef<{ pcm_base64: string; samples: number }[]>([]);
+  const preroll_samples = useRef(0);
 
   const close_chat_ref = useRef<(() => void) | null>(null);
   const voice_ref = useRef<voice_session | null>(null);
@@ -283,7 +301,7 @@ export function use_assistant_engine(props: {
   // voice toggle and a wake-word detection, so both take the mic the same way.
   // Wake-word sessions arm the silence timeout; a manual toggle (silence_timeout
   // false) stays open until toggled off.
-  const start_voice = useCallback((silence_timeout = true) => {
+  const start_voice = useCallback((preroll: string[] = [], silence_timeout = true) => {
     if (voice_ref.current) return;
     silence_enabled.current = silence_timeout;
     // Hold the silence countdown until the assistant is fully finished speaking.
@@ -341,25 +359,82 @@ export function use_assistant_engine(props: {
           upsert_turn(next_turn_id(), "assistant", tr("[voice unavailable]"), false, false);
         },
       },
+      preroll,
     );
   }, [audio, voice_id, on_transcript, tenant_context_token, upsert_turn, tr, bump_silence, hold_silence, props.on_set_reminder]);
+
+  // Wake-word detection: snapshot the pre-roll buffer and open the same voice
+  // session as the manual toggle, seeded with the buffered opening words and
+  // arming the silence timeout. Flags the wake-trigger indicators.
+  const handle_wake_detected = useCallback(() => {
+    const preroll = preroll_ring.current.map((frame) => frame.pcm_base64);
+    set_wake_triggered(true);
+    start_voice(preroll, true);
+  }, [start_voice]);
 
   const toggle_voice = useCallback(() => {
     if (voice_ref.current) {
       stop_voice();
       return;
     }
-    start_voice(false);
+    start_voice([], false);
   }, [stop_voice, start_voice]);
 
   const voice_on = voice_state === "live" || voice_state === "connecting";
 
-  // The wake listener and the talk-mode session never hold the mic at once: run
-  // the engine only while wake is on and no voice session is active. On
-  // detection, start the same voice session as the manual toggle; the engine
-  // disables itself for the duration and re-enables when the session ends.
+  // Continuous mic capture: keep one engine running whenever the wake word is on
+  // or a voice session is active, so the mic never stops across the wake-to-talk
+  // transition and no opening audio is dropped. Released only when neither needs
+  // it. Owning capture here (not in the wake listener or the voice client) is
+  // what makes the single shared engine possible.
+  const capture_needed = props.wake_enabled || voice_state !== "idle";
+  useEffect(() => {
+    if (!capture_needed) return;
+    audio.start_capture().catch((err: unknown) => {
+      console.log("[capture] start failed:", err);
+    });
+    return () => {
+      void audio.stop_capture();
+    };
+  }, [capture_needed, audio]);
+
+  // Feed the rolling pre-roll buffer from the continuous capture while the wake
+  // word is on, trimming to the most recent preroll_max_samples. Approximates
+  // sample count from the base64 length (linear16: 2 bytes/sample) to avoid
+  // decoding every frame.
+  useEffect(() => {
+    if (!props.wake_enabled) return;
+    const unsubscribe = audio.on_input_frame((pcm_base64) => {
+      const bytes = Math.floor((pcm_base64.length * 3) / 4);
+      const samples = bytes >> 1;
+      preroll_ring.current.push({ pcm_base64, samples });
+      preroll_samples.current += samples;
+      while (
+        preroll_samples.current > preroll_max_samples &&
+        preroll_ring.current.length > 0
+      ) {
+        const dropped = preroll_ring.current.shift();
+        if (dropped) preroll_samples.current -= dropped.samples;
+      }
+    });
+    return () => {
+      unsubscribe();
+      preroll_ring.current = [];
+      preroll_samples.current = 0;
+    };
+  }, [props.wake_enabled, audio]);
+
+  // Clear the wake-trigger indicators once the session that a detection opened
+  // has fully closed (silence timeout, barge-out end, or socket close).
+  useEffect(() => {
+    if (voice_state === "idle") set_wake_triggered(false);
+  }, [voice_state]);
+
+  // Run the wake detector while the wake word is on and no voice session is
+  // active: it does not hold the mic (capture is continuous above), it only
+  // consumes frames, so disabling it during a session just stops detection.
   const wake_active = props.wake_enabled && voice_state === "idle";
-  use_wake_word({ audio, enabled: wake_active, on_detected: start_voice });
+  use_wake_word({ audio, enabled: wake_active, on_detected: handle_wake_detected });
 
   return {
     audio,
@@ -369,6 +444,7 @@ export function use_assistant_engine(props: {
     sending,
     voice_state,
     voice_on,
+    wake_triggered,
     submit,
     toggle_voice,
     on_failure_action,

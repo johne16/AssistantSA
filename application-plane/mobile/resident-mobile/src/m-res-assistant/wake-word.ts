@@ -218,8 +218,7 @@ export function use_wake_word(args: {
 
   const sessions_ref = useRef<wake_sessions | null>(null);
   const loading_ref = useRef<Promise<wake_sessions> | null>(null);
-  const capturing_ref = useRef(false);
-  // Latest on_detected without re-running the capture effect on every render.
+  // Latest on_detected without re-running the subscribe effect on every render.
   const detected_ref = useRef(on_detected);
   detected_ref.current = on_detected;
 
@@ -234,6 +233,7 @@ export function use_wake_word(args: {
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
 
     (async () => {
       try {
@@ -244,15 +244,16 @@ export function use_wake_word(args: {
           set_status("detected");
           detected_ref.current();
         });
-        await audio.start_capture(
-          (pcm_base64) => engine.push(base64_to_int16(pcm_base64)),
-          () => {},
+        // Capture is owned continuously by the assistant engine; the detector
+        // only consumes frames. It never starts or stops the mic, so the wake-
+        // to-talk transition keeps one unbroken capture and drops no audio.
+        unsubscribe = audio.on_input_frame((pcm_base64) =>
+          engine.push(base64_to_int16(pcm_base64)),
         );
         if (cancelled) {
-          void audio.stop_capture();
+          unsubscribe();
           return;
         }
-        capturing_ref.current = true;
         set_status("listening");
       } catch {
         if (!cancelled) set_status("error");
@@ -261,10 +262,7 @@ export function use_wake_word(args: {
 
     return () => {
       cancelled = true;
-      if (capturing_ref.current) {
-        capturing_ref.current = false;
-        void audio.stop_capture();
-      }
+      unsubscribe?.();
       set_status("idle");
     };
   }, [enabled, audio, ensure_sessions]);

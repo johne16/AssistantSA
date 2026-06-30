@@ -88,17 +88,29 @@ export function open_voice_stream(
   audio: audio_io,
   voice_id: string,
   handlers: voice_handlers,
+  // PCM frames (base64) captured before the socket opened: the wake-word pre-
+  // roll plus any frames captured during the connect window. They are sent
+  // first, in order, the moment the socket opens, so the resident's whole prompt
+  // reaches the backend even though it was spoken before the connection existed.
+  preroll: string[] = [],
 ): voice_session {
   handlers.on_status("connecting");
 
   const socket = new WebSocket(to_ws_url(app_config.api_gateway_base_url));
   socket.binaryType = "arraybuffer";
   let closed = false;
+  // Frames captured before the stream was ready to send, in capture order:
+  // seeded with the pre-roll, then appended with live frames until the socket
+  // opens and they are flushed.
+  const pending: string[] = [...preroll];
+  // Gate live sending on the flush, not just readyState: a mic frame event can
+  // be dispatched after the socket is OPEN but before onopen runs, which would
+  // otherwise jump the queued pre-roll and send out of order.
+  let flushed = false;
 
-  // Send a captured PCM chunk up as a binary frame if the socket is open, per
-  // ap-voice's protocol (binary = audio, text = handshake). Capture hands base64
-  // PCM; decode to bytes at the boundary. Keeps running during playback so the
-  // user can barge in over the assistant.
+  // Send a captured PCM chunk up as a binary frame, per ap-voice's protocol
+  // (binary = audio, text = handshake). Capture hands base64 PCM; decode to
+  // bytes at the boundary.
   const send_chunk = (pcm_base64: string) => {
     if (socket.readyState === WebSocket.OPEN) {
       const bytes = base64_to_bytes(pcm_base64);
@@ -106,11 +118,24 @@ export function open_voice_stream(
     }
   };
 
+  // Continuous capture is owned by the assistant engine; this session just
+  // consumes frames for its lifetime. Until the queue is flushed on open, every
+  // frame is queued so it lands after the pre-roll; afterwards frames send live
+  // (capture keeps flowing during playback so the user can barge in).
+  const frame_unsub = audio.on_input_frame((pcm_base64) => {
+    if (flushed && socket.readyState === WebSocket.OPEN) send_chunk(pcm_base64);
+    else pending.push(pcm_base64);
+  });
+  const barge_unsub = audio.on_barge_in(() => send_barge_in());
+
   const teardown = () => {
     if (closed) return;
     closed = true;
-    void audio.stop_capture();
-    audio.stop_playback();
+    frame_unsub();
+    barge_unsub();
+    // Drop in-flight playback but leave the capture engine running: continuous
+    // wake listening outlives this session.
+    audio.flush_playback();
     if (
       socket.readyState === WebSocket.OPEN ||
       socket.readyState === WebSocket.CONNECTING
@@ -132,15 +157,15 @@ export function open_voice_stream(
     // First frame authorizes the stream with the token.
     const open_frame: voice_stream_open = { tenant_context_token, voice_id };
     socket.send(JSON.stringify(open_frame));
+    // Flush everything captured before the socket opened (pre-roll + connect
+    // window), in capture order, before any live frame goes out.
+    flushed = true;
+    const buffered = pending.splice(0, pending.length);
+    for (const pcm_base64 of buffered) send_chunk(pcm_base64);
     handlers.on_status("live");
     // Arm the silence timeout from the moment the stream is live, awaiting the
     // first words.
     handlers.on_activity?.();
-    // Begin capture; chunks stream up as they are encoded.
-    audio.start_capture(send_chunk, send_barge_in).catch((err: unknown) => {
-      handlers.on_error(err instanceof Error ? err.message : "capture failed");
-      teardown();
-    });
   };
 
   socket.onmessage = (message) => {

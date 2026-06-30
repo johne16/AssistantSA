@@ -141,24 +141,31 @@ export type voice_status = "idle" | "connecting" | "live" | "error";
 // hides the native audio module so a placeholder can stand in when expo-audio
 // is not installed. No audio is persisted; only transcript text is kept.
 export interface audio_io {
-  // Begin microphone capture. on_chunk fires per base64 PCM chunk to send up.
-  // PCM (linear16) matches the server-side Deepgram uplink encoding. on_barge_in
-  // fires when the resident speaks over the assistant; the caller forwards it to
-  // the backend so it stops generating.
-  start_capture(
-    on_chunk: (pcm_base64: string) => void,
-    on_barge_in: () => void,
-  ): Promise<void>;
-  // Stop microphone capture.
+  // Begin continuous microphone capture. Idempotent: repeated calls while
+  // already capturing are a no-op, so the wake listener and a voice session both
+  // draw from a single engine that never restarts (and so drops no frames)
+  // across the wake-to-talk transition. PCM (linear16, 16kHz mono) matches the
+  // server-side Deepgram uplink encoding. Captured frames fan out to every
+  // on_input_frame consumer; barge-in fans out to every on_barge_in consumer.
+  start_capture(): Promise<void>;
+  // Stop capture and release the native engine (mic + AEC).
   stop_capture(): Promise<void>;
+  // Subscribe to captured PCM frames (base64 linear16). Returns an unsubscribe
+  // fn. Frames only arrive while capture is running.
+  on_input_frame(handler: (pcm_base64: string) => void): () => void;
+  // Subscribe to a local barge-in (the resident speaks over the assistant). The
+  // voice session forwards it to the backend so it stops generating. Returns an
+  // unsubscribe fn.
+  on_barge_in(handler: () => void): () => void;
   // Enqueue one downstream audio unit (one sentence) for playback. Units are
   // raw PCM 16-bit mono at 16000 Hz, fed straight to the playback engine.
   play_chunk(audio_base64: string): void;
   // Signal that a fresh response turn is starting, so playback stops suppressing
   // the barged-out turn's tail and plays this one from the beginning.
   begin_response(): void;
-  // Stop and clear playback (e.g. on barge-in or close).
-  stop_playback(): void;
+  // Drop in-flight playback (barge-in or session close) without tearing down the
+  // capture engine, so continuous wake listening survives a session ending.
+  flush_playback(): void;
   // Subscribe to the assistant output level (0..1) emitted by the playback
   // engine. The idle waveform drives its amplitude from this; it reacts to the
   // assistant's voice only, never the user's input. Returns an unsubscribe fn.
@@ -176,6 +183,10 @@ export interface assistant_engine {
   sending: boolean;
   voice_state: voice_status;
   voice_on: boolean;
+  // True from a wake-word detection until that voice session ends. Drives the
+  // portal's wake-trigger indicators (the wake-bar dot and the idle overlay
+  // accent). A manual voice toggle does not set it.
+  wake_triggered: boolean;
   submit: () => void;
   toggle_voice: () => void;
   on_failure_action: (turn: chat_turn) => void;
