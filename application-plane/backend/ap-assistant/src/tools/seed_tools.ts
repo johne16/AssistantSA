@@ -17,6 +17,7 @@ export const seed_tools: task_tool[] = [
     downstream: "ap-civic",
     operation: "check_collection_schedule",
     requires_confirmation: false,
+    source_label: "https://www.sa.gov/Directory/Departments/SWMD/Garbage/My-Collection-Day",
   },
   {
     tool_definition: {
@@ -32,6 +33,7 @@ export const seed_tools: task_tool[] = [
     downstream: "ap-utility",
     operation: "check_power_status",
     requires_confirmation: false,
+    source_label: "https://outagemap.cpsenergy.com/",
   },
   {
     tool_definition: {
@@ -47,6 +49,7 @@ export const seed_tools: task_tool[] = [
     downstream: "ap-civic",
     operation: "check_city_alerts",
     requires_confirmation: false,
+    source_label: "https://sat.ahasalerts.com/activealerts.aspx",
   },
   {
     tool_definition: {
@@ -64,6 +67,7 @@ export const seed_tools: task_tool[] = [
     downstream: "ap-utility",
     operation: "read_utility_bill",
     requires_confirmation: false,
+    source_label: "Utility account",
   },
   {
     tool_definition: {
@@ -79,6 +83,7 @@ export const seed_tools: task_tool[] = [
     downstream: "ap-civic",
     operation: "check_city_events",
     requires_confirmation: false,
+    source_label: "https://www.sa.gov/Directory/Events-Directory",
   },
   {
     tool_definition: {
@@ -122,5 +127,6 @@ export const seed_tools: task_tool[] = [
     downstream: "ap-civic",
     operation: "my_area",
     requires_confirmation: false,
+    source_label: "https://www.sa.gov/Directory/Departments",
   },
 ];

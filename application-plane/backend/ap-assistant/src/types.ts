@@ -119,6 +119,9 @@ export interface task_tool {
   requires_confirmation: boolean;
   // Optional task-specific instructions for the handler's own LLM step.
   task_prompt?: string;
+  // Provenance label shown on the answer's source line. Omitted for tools with
+  // no external source (e.g. set_reminder).
+  source_label?: string;
 }
 
 export interface tool_registry {

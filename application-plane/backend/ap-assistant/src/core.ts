@@ -72,20 +72,6 @@ function reminder_when_display(scheduled_at: string): string {
   return `${month} ${day} · ${hour}:${m[5]} ${meridiem}`;
 }
 
-// Human source label for a downstream data module, used on the provenance line.
-// Generic labels (no provider/city specifics) since the tool result does not
-// carry a provider name. Non-data downstreams return "" (no provenance).
-function source_label_of(downstream: string): string {
-  switch (downstream) {
-    case "ap-civic":
-      return "City services";
-    case "ap-utility":
-      return "Utility account";
-    default:
-      return "";
-  }
-}
-
 // Date + time label, e.g. "Jul 5 · 9:12 AM", read from an ISO string's own
 // fields so the resident can judge staleness themselves.
 function record_display(iso: string): string {
@@ -333,7 +319,7 @@ class core_impl implements assistant_core {
   ): source_chunk | source_failure_chunk | undefined {
     const tool = this.deps.registry.get(tool_name);
     if (!tool) return undefined;
-    const source = source_label_of(tool.downstream);
+    const source = tool.source_label;
     if (!source) return undefined;
     const r = result as { error?: unknown } | null;
     if (r && typeof r.error === "string") {
