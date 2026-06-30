@@ -420,21 +420,25 @@ class core_impl implements assistant_core {
   }
 
   // Stable system prefix (persona + tool defs implicitly via request.tools) marked
-  // cacheable, followed by the current date. The date block sits after the
-  // persona's cache_control breakpoint so it stays outside the cached prefix and
-  // is re-sent each turn; the persona stays cached. Without it the model has no
-  // notion of "today" and fabricates dates for relative references like
-  // "tomorrow".
+  // cacheable, followed by the current date and time. The datetime block sits
+  // after the persona's cache_control breakpoint so it stays outside the cached
+  // prefix and is re-sent each turn; the persona stays cached. Without it the
+  // model has no notion of "now" and fabricates instants for relative references
+  // like "tomorrow" or "in two hours"; the time and zone are needed to resolve
+  // reminder scheduled_at instants correctly.
   private system_blocks(): llm_text_block[] {
-    const today = new Date().toLocaleDateString("en-US", {
+    const now = new Date().toLocaleString("en-US", {
       weekday: "long",
       year: "numeric",
       month: "long",
       day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
     });
     return [
       { type: "text", text: persona_text, cache_control: { type: "ephemeral" } },
-      { type: "text", text: `Today's date is ${today}.` },
+      { type: "text", text: `The current date and time is ${now}.` },
     ];
   }
 
