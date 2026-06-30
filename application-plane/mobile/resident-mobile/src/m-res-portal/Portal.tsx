@@ -175,7 +175,7 @@ export function Portal() {
 
   // Wake-word listening state (portal-level "Hey Bex"). The wake bar and the
   // Settings wake-word switch drive the same flag.
-  const [wake_enabled, set_wake_enabled] = useState(true);
+  const [wake_enabled, set_wake_enabled] = useState(false);
   const toggle_wake = useCallback(() => set_wake_enabled((w) => !w), []);
 
   // Store a reminder the assistant set (text or voice). Kept here so

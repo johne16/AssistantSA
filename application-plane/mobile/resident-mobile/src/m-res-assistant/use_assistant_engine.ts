@@ -14,6 +14,11 @@ import type {
 } from "./types";
 import type { voice_session } from "./voice-client";
 
+// How long the voice session waits with no inbound activity (no user speech and
+// the assistant idle) before it closes the stream. Reset on every inbound event,
+// so it also covers the gap after the assistant responds.
+const voice_silence_timeout_ms = 8000;
+
 // Owns the assistant's audio engine, chat thread, voice session, and wake-word
 // listener. Mounted once at portal level so the "Hey Bex" listener and the mic
 // engine run on every screen (the wake toggle is portal-level), not only while
@@ -52,6 +57,10 @@ export function use_assistant_engine(props: {
 
   const close_chat_ref = useRef<(() => void) | null>(null);
   const voice_ref = useRef<voice_session | null>(null);
+  const silence_timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether the live session arms the silence timeout. Wake-word sessions do;
+  // a manual voice toggle stays open until toggled off.
+  const silence_enabled = useRef(false);
   // Tracks the in-progress voice turn per role so streamed fragments append to
   // the same bubble instead of creating one bubble per fragment.
   const voice_turn_ids = useRef<{ user: string | null; assistant: string | null }>({
@@ -206,10 +215,35 @@ export function use_assistant_engine(props: {
   );
 
   const stop_voice = useCallback(() => {
+    if (silence_timer.current) {
+      clearTimeout(silence_timer.current);
+      silence_timer.current = null;
+    }
     voice_ref.current?.stop();
     voice_ref.current = null;
     voice_turn_ids.current = { user: null, assistant: null };
     set_voice_state("idle");
+  }, []);
+
+  // Restart the silence countdown. Called when the stream goes live and on each
+  // assistant-side event; if it elapses with no further activity the session is
+  // closed.
+  const bump_silence = useCallback(() => {
+    if (!silence_enabled.current) return;
+    if (silence_timer.current) clearTimeout(silence_timer.current);
+    silence_timer.current = setTimeout(() => {
+      silence_timer.current = null;
+      stop_voice();
+    }, voice_silence_timeout_ms);
+  }, [stop_voice]);
+
+  // The user spoke: cancel the countdown while the response is generated. The
+  // next assistant-side event re-arms it.
+  const hold_silence = useCallback(() => {
+    if (silence_timer.current) {
+      clearTimeout(silence_timer.current);
+      silence_timer.current = null;
+    }
   }, []);
 
   // Tear down a live voice session if the engine unmounts mid-call, so the
@@ -217,6 +251,7 @@ export function use_assistant_engine(props: {
   // staying hot in the background.
   useEffect(() => {
     return () => {
+      if (silence_timer.current) clearTimeout(silence_timer.current);
       voice_ref.current?.stop();
       voice_ref.current = null;
     };
@@ -224,8 +259,11 @@ export function use_assistant_engine(props: {
 
   // Start the voice session if one is not already live. Shared by the manual
   // voice toggle and a wake-word detection, so both take the mic the same way.
-  const start_voice = useCallback(() => {
+  // Wake-word sessions arm the silence timeout; a manual toggle (silence_timeout
+  // false) stays open until toggled off.
+  const start_voice = useCallback((silence_timeout = true) => {
     if (voice_ref.current) return;
+    silence_enabled.current = silence_timeout;
     voice_ref.current = open_voice_stream(
       tenant_context_token,
       audio,
@@ -258,6 +296,8 @@ export function use_assistant_engine(props: {
           }
         },
         on_status: set_voice_state,
+        on_activity: bump_silence,
+        on_user_speech: hold_silence,
         on_error: (message) => {
           console.log("[voice] error:", message);
           // Surface the failure as an assistant note in the thread.
@@ -265,14 +305,14 @@ export function use_assistant_engine(props: {
         },
       },
     );
-  }, [audio, voice_id, on_transcript, tenant_context_token, upsert_turn, tr, props.on_set_reminder]);
+  }, [audio, voice_id, on_transcript, tenant_context_token, upsert_turn, tr, bump_silence, hold_silence, props.on_set_reminder]);
 
   const toggle_voice = useCallback(() => {
     if (voice_ref.current) {
       stop_voice();
       return;
     }
-    start_voice();
+    start_voice(false);
   }, [stop_voice, start_voice]);
 
   const voice_on = voice_state === "live" || voice_state === "connecting";

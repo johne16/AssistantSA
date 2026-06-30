@@ -20,6 +20,15 @@ export interface voice_handlers {
   on_reminder: (reminder: assistant_reminder_payload) => void;
   on_status: (status: voice_status) => void;
   on_error: (message: string) => void;
+  // Arms/resets the caller's silence timeout. Fired when the stream goes live
+  // (awaiting first words) and on every assistant-side event (audio chunk,
+  // response_start, assistant_transcript, reminder). When it elapses with no
+  // further activity, nothing is happening and the session can close.
+  on_activity?: () => void;
+  // The user finished an utterance. Cancels the silence timeout: a response is
+  // now incoming, so the gap until the assistant's first token must not close
+  // the stream. The next assistant-side event re-arms it.
+  on_user_speech?: () => void;
 }
 
 // A live voice session the screen can stop.
@@ -124,6 +133,9 @@ export function open_voice_stream(
     const open_frame: voice_stream_open = { tenant_context_token, voice_id };
     socket.send(JSON.stringify(open_frame));
     handlers.on_status("live");
+    // Arm the silence timeout from the moment the stream is live, awaiting the
+    // first words.
+    handlers.on_activity?.();
     // Begin capture; chunks stream up as they are encoded.
     audio.start_capture(send_chunk, send_barge_in).catch((err: unknown) => {
       handlers.on_error(err instanceof Error ? err.message : "capture failed");
@@ -135,6 +147,7 @@ export function open_voice_stream(
     // Binary frame = one audio unit (one sentence) in the session's format.
     // Play it gaplessly; nothing is stored.
     if (typeof message.data !== "string") {
+      handlers.on_activity?.();
       const bytes = new Uint8Array(message.data as ArrayBuffer);
       audio.play_chunk(bytes_to_base64(bytes));
       return;
@@ -154,6 +167,7 @@ export function open_voice_stream(
       return;
     }
     if (frame.type === "reminder") {
+      handlers.on_activity?.();
       handlers.on_reminder({
         title: frame.title ?? "",
         body: frame.body ?? "",
@@ -164,11 +178,17 @@ export function open_voice_stream(
     }
     if (frame.type === "response_start") {
       // A fresh response turn is starting: let playback resume from the top.
+      handlers.on_activity?.();
       console.log("[voice] response_start received");
       audio.begin_response();
       return;
     }
     if (frame.type === "user_transcript" || frame.type === "assistant_transcript") {
+      if (frame.type === "user_transcript") {
+        handlers.on_user_speech?.();
+      } else {
+        handlers.on_activity?.();
+      }
       const event: voice_transcript_event = {
         kind: "transcript",
         role: frame.type === "user_transcript" ? "user" : "assistant",
