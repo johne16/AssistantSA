@@ -71,28 +71,86 @@ export function use_reminders(): reminders_client {
   // it to its prior status rather than guessing.
   const prior_status = useRef<Map<string, reminder_entry["status"]>>(new Map());
   const loaded = useRef(false);
+  // Listeners notified when a reminder fires on-device (portal -> local banner).
+  const fire_listeners = useRef<Set<(entry: reminder_entry) => void>>(new Set());
 
-  // Load the resident's reminders from the gateway once on mount.
+  // Re-read the resident's reminders from the gateway. This module is the only
+  // client writer of reminders; the assistant's set_reminder tool persists the
+  // row server-side, so after it fires the portal calls refresh to pull the new
+  // row (with its server id) rather than writing a duplicate.
+  const refresh = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch(`${base_url}${list_path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenant_context_token }),
+      });
+      if (!res.ok) return;
+      const list = (await res.json()) as gateway_reminder[];
+      set_reminders(list.map(to_client));
+    } catch {
+      // Network unavailable: leave the current list in place.
+    }
+  }, [base_url, tenant_context_token]);
+
+  // Load once on mount.
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
-    void (async () => {
-      try {
-        const res = await fetch(`${base_url}${list_path}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tenant_context_token }),
-        });
-        if (!res.ok) return;
-        const list = (await res.json()) as gateway_reminder[];
-        set_reminders(list.map(to_client));
-      } catch {
-        // Network unavailable: leave the list empty; the next mount retries.
+    void refresh();
+  }, [refresh]);
+
+  // Client-side firing. Reminders fire on the device, not from the backend: the
+  // backend only stores them so they sync to the user's other clients. Arm a
+  // single timer for the earliest upcoming deadline and sleep until then, the way
+  // an OS timer does, rather than polling. The effect re-arms whenever the list
+  // changes (add, dismiss, restore, or a fire that flips a status).
+  const [reschedule_tick, set_reschedule_tick] = useState(0);
+  useEffect(() => {
+    const now = Date.now();
+    let next: number | null = null;
+    for (const r of reminders) {
+      if (r.status !== "upcoming") continue;
+      const at = Date.parse(r.scheduled_at);
+      if (next === null || at < next) next = at;
+    }
+    if (next === null) return;
+
+    // setTimeout delays are a signed 32-bit int; clamp longer deadlines and
+    // re-arm when the capped timer elapses.
+    const max_delay = 2 ** 31 - 1;
+    const delay = Math.min(max_delay, Math.max(0, next - now));
+    const handle = setTimeout(() => {
+      if (delay === max_delay) {
+        set_reschedule_tick((n) => n + 1);
+        return;
       }
-    })();
-    // Session token is stable for the PoC; load runs once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      const fired_at = Date.now();
+      const due_ids = new Set(
+        reminders
+          .filter(
+            (r) =>
+              r.status === "upcoming" && Date.parse(r.scheduled_at) <= fired_at,
+          )
+          .map((r) => r.id),
+      );
+      if (due_ids.size === 0) {
+        set_reschedule_tick((n) => n + 1);
+        return;
+      }
+      set_reminders((prev) =>
+        prev.map((r) =>
+          due_ids.has(r.id) ? { ...r, status: "fired" as const } : r,
+        ),
+      );
+      for (const r of reminders) {
+        if (!due_ids.has(r.id)) continue;
+        const fired = { ...r, status: "fired" as const };
+        for (const listener of fire_listeners.current) listener(fired);
+      }
+    }, delay);
+    return () => clearTimeout(handle);
+  }, [reminders, reschedule_tick]);
 
   const add = useCallback(
     (input: new_reminder): reminder_entry => {
@@ -194,8 +252,18 @@ export function use_reminders(): reminders_client {
     [base_url, tenant_context_token],
   );
 
+  const on_fire = useCallback(
+    (listener: (entry: reminder_entry) => void): (() => void) => {
+      fire_listeners.current.add(listener);
+      return () => {
+        fire_listeners.current.delete(listener);
+      };
+    },
+    [],
+  );
+
   return useMemo<reminders_client>(
-    () => ({ reminders, add, dismiss, restore }),
-    [reminders, add, dismiss, restore],
+    () => ({ reminders, add, refresh, dismiss, restore, on_fire }),
+    [reminders, add, refresh, dismiss, restore, on_fire],
   );
 }

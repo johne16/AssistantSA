@@ -122,6 +122,17 @@ export interface civic_read_request {
   claims: tenant_context_token;
 }
 
+// Per-resident alert dismissal. Alerts are shared per city_tenant_id, so a
+// dismissal hides one alert for one resident; it never deletes the shared row.
+// "restore" undoes a dismissal (the Feed's undo toast).
+export type alert_dismiss_action = "dismiss" | "restore";
+
+export interface civic_dismiss_request {
+  action: alert_dismiss_action;
+  entry_id: string;
+  claims: tenant_context_token;
+}
+
 // agentRequest payload from ap-assistant. operation maps to a civic_resource.
 export interface agent_request {
   tenant_context_token: string; // signed JWT, verified before trust
@@ -247,6 +258,21 @@ export interface civic_store {
   insert_alerts(city_tenant_id: string, entries: alert_entry[]): Promise<void>;
   insert_events(city_tenant_id: string, entries: event_entry[]): Promise<void>;
 
+  // Per-resident alert dismissals (sub-scoped within the city silo). Used to
+  // hide shared alerts for one resident without touching the shared rows.
+  list_alert_dismissals(city_tenant_id: string, sub: string): Promise<string[]>;
+  insert_alert_dismissal(
+    city_tenant_id: string,
+    sub: string,
+    entry_id: string,
+    dismissed_at: string,
+  ): Promise<void>;
+  delete_alert_dismissal(
+    city_tenant_id: string,
+    sub: string,
+    entry_id: string,
+  ): Promise<void>;
+
   // Upsert (update in place) for resolved address-derived records.
   upsert_collection_schedule(
     city_tenant_id: string,
@@ -332,6 +358,7 @@ export interface civic_deps {
 // Service surface consumed by the handler.
 export interface civic_service {
   read(request: civic_read_request): Promise<civic_read_response>;
+  dismiss(request: civic_dismiss_request): Promise<void>;
   run_scheduled_fetch(source: fetch_source): Promise<void>;
 }
 
@@ -343,5 +370,10 @@ export interface civic_handler {
     claims: tenant_context_token,
   ): Promise<civic_read_response>;
   agent_request(request: agent_request): Promise<civic_read_response>;
+  civic_dismiss(
+    action: alert_dismiss_action,
+    entry_id: string,
+    claims: tenant_context_token,
+  ): Promise<void>;
   run_scheduled_fetch(source: fetch_source): Promise<void>;
 }

@@ -1,6 +1,8 @@
 import { app_config } from "@/app-config";
 import type {
+  alert_dismiss_action,
   civic_api_request,
+  civic_dismiss_api_request,
   civic_read_response,
   civic_view_request,
 } from "./types";
@@ -37,4 +39,26 @@ export async function civic_api_request(
     throw new Error(`civic gateway request failed: ${res.status}`);
   }
   return (await res.json()) as civic_read_response;
+}
+
+// POST a per-resident alert dismiss/restore to the gateway. Returns once the
+// dismissal is persisted (204 No Content); throws on a non-ok status.
+export async function civic_dismiss_request(
+  tenant_context_token: string,
+  action: alert_dismiss_action,
+  entry_id: string,
+): Promise<void> {
+  const body: civic_dismiss_api_request = {
+    tenant_context_token,
+    action,
+    entry_id,
+  };
+  const res = await fetch(`${app_config.api_gateway_base_url}/civic/dismiss`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`civic dismiss request failed: ${res.status}`);
+  }
 }

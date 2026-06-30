@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef } from "react";
 import { use_resident_session } from "@/m-res-auth";
-import { civic_api_request } from "./gateway";
+import { civic_api_request, civic_dismiss_request } from "./gateway";
 import type {
   civic_client,
   civic_read_response,
@@ -110,8 +110,20 @@ export function use_civic(): civic_client {
     [tenant_context_token, revalidate],
   );
 
+  const dismiss_alert = useCallback(
+    (entry_id: string): Promise<void> =>
+      civic_dismiss_request(tenant_context_token, "dismiss", entry_id),
+    [tenant_context_token],
+  );
+
+  const restore_alert = useCallback(
+    (entry_id: string): Promise<void> =>
+      civic_dismiss_request(tenant_context_token, "restore", entry_id),
+    [tenant_context_token],
+  );
+
   return useMemo<civic_client>(
-    () => ({ civic_view_request, on_rep_update }),
-    [civic_view_request, on_rep_update],
+    () => ({ civic_view_request, on_rep_update, dismiss_alert, restore_alert }),
+    [civic_view_request, on_rep_update, dismiss_alert, restore_alert],
   );
 }

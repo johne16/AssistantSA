@@ -7,6 +7,7 @@ import type {
   alert_entry,
   alert_tier,
   civic_deps,
+  civic_dismiss_request,
   civic_read_request,
   civic_read_response,
   civic_service,
@@ -51,8 +52,12 @@ export function create_civic_service(deps: civic_deps): civic_service {
 
     switch (resource) {
       case "alerts": {
-        const data = await store.list_alerts(tenant);
-        return { resource, data };
+        const [data, dismissed] = await Promise.all([
+          store.list_alerts(tenant),
+          store.list_alert_dismissals(tenant, sub),
+        ]);
+        const hidden = new Set(dismissed);
+        return { resource, data: data.filter((a) => !hidden.has(a.entry_id)) };
       }
       case "events": {
         const data = await store.list_events(tenant);
@@ -443,7 +448,27 @@ export function create_civic_service(deps: civic_deps): civic_service {
     return age > refresh_days * DAY_MS;
   }
 
-  return { read, run_scheduled_fetch };
+  // -------------------------------------------------------------------------
+  // Writes. Per-resident alert dismissal only; the shared alert rows are never
+  // mutated here.
+  // -------------------------------------------------------------------------
+
+  async function dismiss(request: civic_dismiss_request): Promise<void> {
+    const tenant = request.claims.city_tenant_id;
+    const sub = request.claims.sub;
+    if (request.action === "dismiss") {
+      await store.insert_alert_dismissal(
+        tenant,
+        sub,
+        request.entry_id,
+        clock.now().toISOString(),
+      );
+    } else {
+      await store.delete_alert_dismissal(tenant, sub, request.entry_id);
+    }
+  }
+
+  return { read, dismiss, run_scheduled_fetch };
 }
 
 // ---------------------------------------------------------------------------

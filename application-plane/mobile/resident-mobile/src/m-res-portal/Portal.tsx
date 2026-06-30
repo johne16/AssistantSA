@@ -26,7 +26,7 @@ import {
 import { AssistantScreen, IdleOverlay, use_assistant_engine } from "@/m-res-assistant";
 
 import { TabBar, WakeBar } from "./components/chrome";
-import { FeedScreen, alert_feed_id } from "./screens/feed";
+import { FeedScreen, alert_feed_id, alert_entry_id_of } from "./screens/feed";
 import { AccountsScreen, AddAccountScreen } from "./screens/accounts";
 import { SettingsScreen } from "./screens/settings";
 import {
@@ -133,6 +133,20 @@ export function Portal() {
     [notifications],
   );
 
+  // Surface a client-side reminder fire as a local notification banner, gated by
+  // the push master switch like other on-device notifications.
+  useEffect(() => {
+    return reminders.on_fire((r) => {
+      if (!prefs.push_enabled) return;
+      notifications.raise_local({
+        type: "reminder",
+        title: r.title,
+        body: r.body,
+        data: { reminder_id: r.id },
+      });
+    });
+  }, [reminders, notifications, prefs.push_enabled]);
+
   useEffect(() => {
     const off = accounts.on_sync_result((r: sync_result) => {
       if (r.sync_status === "queued" || r.sync_status === "syncing") {
@@ -178,18 +192,13 @@ export function Portal() {
   const [wake_enabled, set_wake_enabled] = useState(false);
   const toggle_wake = useCallback(() => set_wake_enabled((w) => !w), []);
 
-  // Store a reminder the assistant set (text or voice). Kept here so
+  // The assistant set a reminder (text or voice). Its set_reminder tool already
+  // persisted the row server-side, so the portal writes nothing: it just asks
+  // m-res-reminders to re-read its list and pick up the new row. Kept here so
   // m-res-assistant stays decoupled from m-res-reminders.
-  const on_set_reminder = useCallback(
-    (r: { title: string; body: string; when: string; scheduled_at: string }) =>
-      reminders.add({
-        title: r.title,
-        body: r.body,
-        scheduled_at: r.scheduled_at,
-        when_display: r.when,
-      }),
-    [reminders],
-  );
+  const on_set_reminder = useCallback(() => {
+    void reminders.refresh();
+  }, [reminders]);
 
   // Assistant engine, mounted once here so the "Hey Bex" wake listener and the
   // mic engine run on every screen (the wake toggle is portal-level), not only
@@ -261,20 +270,48 @@ export function Portal() {
     };
   }, [civic, prefs.city_alert_enabled]);
 
-  const on_dismiss_alerts = useCallback((ids: string[]) => {
-    set_dismissed_alerts((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) next.add(id);
-      return next;
-    });
-  }, []);
-  const on_restore_alerts = useCallback((ids: string[]) => {
-    set_dismissed_alerts((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) next.delete(id);
-      return next;
-    });
-  }, []);
+  // Optimistic local hide, then persist per-resident. On a backend failure, roll
+  // the id back into view so the list reflects what the server actually stored.
+  const on_dismiss_alerts = useCallback(
+    (ids: string[]) => {
+      set_dismissed_alerts((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.add(id);
+        return next;
+      });
+      for (const id of ids) {
+        civic.dismiss_alert(alert_entry_id_of(id)).catch((err) => {
+          console.error("[portal] dismiss_alert failed:", err);
+          set_dismissed_alerts((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+        });
+      }
+    },
+    [civic],
+  );
+  const on_restore_alerts = useCallback(
+    (ids: string[]) => {
+      set_dismissed_alerts((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+      for (const id of ids) {
+        civic.restore_alert(alert_entry_id_of(id)).catch((err) => {
+          console.error("[portal] restore_alert failed:", err);
+          set_dismissed_alerts((prev) => {
+            const next = new Set(prev);
+            next.add(id);
+            return next;
+          });
+        });
+      }
+    },
+    [civic],
+  );
 
   // Tab badge: non-dismissed alerts + fired reminders (the Triggered count).
   const live_alert_count = alerts.filter(

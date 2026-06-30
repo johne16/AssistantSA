@@ -140,8 +140,22 @@ export interface civic_view_request {
 // result when ap-civic surfaces changed rep data.
 export type civic_rep_update_listener = (response: civic_read_response) => void;
 
+// POST body to the alert dismiss endpoint. Per-resident dismiss/restore of a
+// shared alert; identified by the alert's entry_id.
+export type alert_dismiss_action = "dismiss" | "restore";
+
+export interface civic_dismiss_api_request {
+  tenant_context_token: string;
+  action: alert_dismiss_action;
+  entry_id: string;
+}
+
 // Surface the portal consumes from use_civic().
 export interface civic_client {
   civic_view_request(req: civic_view_request): Promise<civic_read_response>;
   on_rep_update(listener: civic_rep_update_listener): () => void;
+  // Per-resident alert dismissal, persisted server-side. dismiss_alert hides the
+  // alert for this resident; restore_alert undoes it (Feed undo toast).
+  dismiss_alert(entry_id: string): Promise<void>;
+  restore_alert(entry_id: string): Promise<void>;
 }

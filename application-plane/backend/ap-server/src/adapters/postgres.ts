@@ -78,6 +78,12 @@ async function ensure_schema(pool: Pool, schema: string): Promise<void> {
     payload jsonb NOT NULL,
     PRIMARY KEY (kind, address)
   )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.civic_alert_dismissal (
+    sub text NOT NULL,
+    entry_id text NOT NULL,
+    dismissed_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (sub, entry_id)
+  )`);
   // utility tables
   await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.utility_bill (
     sub text NOT NULL,
@@ -211,6 +217,30 @@ export function create_civic_store(pool: Pool): civic_store {
     },
     async insert_events(city_tenant_id, entries) {
       await insert_civic(pool, city_tenant_id, "city_events", entries, null);
+    },
+    async list_alert_dismissals(city_tenant_id, sub) {
+      const s = await scoped(pool, city_tenant_id);
+      const r = await pool.query(
+        `SELECT entry_id FROM ${s}.civic_alert_dismissal WHERE sub = $1`,
+        [sub],
+      );
+      return r.rows.map((row) => row.entry_id as string);
+    },
+    async insert_alert_dismissal(city_tenant_id, sub, entry_id, dismissed_at) {
+      const s = await scoped(pool, city_tenant_id);
+      await pool.query(
+        `INSERT INTO ${s}.civic_alert_dismissal (sub, entry_id, dismissed_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (sub, entry_id) DO NOTHING`,
+        [sub, entry_id, dismissed_at],
+      );
+    },
+    async delete_alert_dismissal(city_tenant_id, sub, entry_id) {
+      const s = await scoped(pool, city_tenant_id);
+      await pool.query(
+        `DELETE FROM ${s}.civic_alert_dismissal WHERE sub = $1 AND entry_id = $2`,
+        [sub, entry_id],
+      );
     },
     async upsert_collection_schedule(city_tenant_id, address, entries) {
       const s = await scoped(pool, city_tenant_id);

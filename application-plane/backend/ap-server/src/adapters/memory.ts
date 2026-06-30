@@ -42,6 +42,8 @@ export function create_memory_civic_store(): civic_store {
   const entries = new Map<string, Map<fetch_source, Map<string, alert_entry | event_entry>>>();
   // city -> "kind|address" -> resolved
   const resolved = new Map<string, Map<string, find_my_rep_entry | my_area_entry | collection_schedule_entry[]>>();
+  // city -> sub -> dismissed alert entry_ids
+  const dismissals = new Map<string, Map<string, Set<string>>>();
 
   function src(city: string, source: fetch_source) {
     let byCity = entries.get(city);
@@ -54,6 +56,13 @@ export function create_memory_civic_store(): civic_store {
     let m = resolved.get(city);
     if (!m) resolved.set(city, (m = tenant_map()));
     return m;
+  }
+  function dis(city: string, sub: string) {
+    let byCity = dismissals.get(city);
+    if (!byCity) dismissals.set(city, (byCity = new Map()));
+    let set = byCity.get(sub);
+    if (!set) byCity.set(sub, (set = new Set()));
+    return set;
   }
 
   return {
@@ -88,6 +97,15 @@ export function create_memory_civic_store(): civic_store {
     },
     async insert_events(city, list) {
       for (const e of list) src(city, "city_events").set(e.entry_id, e);
+    },
+    async list_alert_dismissals(city, sub) {
+      return [...dis(city, sub)];
+    },
+    async insert_alert_dismissal(city, sub, entry_id) {
+      dis(city, sub).add(entry_id);
+    },
+    async delete_alert_dismissal(city, sub, entry_id) {
+      dis(city, sub).delete(entry_id);
     },
     async upsert_collection_schedule(city, address, entries) {
       res(city).set(`collection_schedule|${address}`, entries);

@@ -106,6 +106,28 @@ export function create_gateway(modules: gateway_modules): express.Express {
     }
   });
 
+  // POST /civic/dismiss { tenant_context_token, action, entry_id }
+  app.post("/civic/dismiss", async (req: Request, res: Response) => {
+    const auth = await authenticate(req, res);
+    if (!auth) return;
+    try {
+      const { claims } = auth;
+      const { action, entry_id } = req.body as {
+        action: "dismiss" | "restore";
+        entry_id: string;
+      };
+      await modules.civic.civic_dismiss(action, entry_id, {
+        sub: claims.sub,
+        city_tenant_id: claims.city_tenant_id,
+        iat: claims.iat,
+        exp: claims.exp,
+      });
+      res.status(204).end();
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
   // POST /utility/site-script { tenant_context_token, site_id }
   app.post("/utility/site-script", async (req: Request, res: Response) => {
     const auth = await authenticate(req, res);

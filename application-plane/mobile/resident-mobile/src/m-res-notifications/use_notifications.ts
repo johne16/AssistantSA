@@ -13,6 +13,19 @@ import type {
   use_notifications_result,
 } from "./types";
 
+// Foreground presentation. Without a handler, expo-notifications delivers
+// notifications silently while the app is open, so a fired reminder (or any
+// on-device notification) shows nothing. Set once at import so it is registered
+// before the first notification fires.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
 // Default opt-ins applied on the very first registration, before the portal
 // has supplied stored preferences. ap-notifications is the store of record and
 // reconciles against these.

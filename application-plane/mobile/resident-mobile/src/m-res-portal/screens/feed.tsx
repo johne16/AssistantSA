@@ -35,6 +35,12 @@ export function alert_feed_id(entry_id: string): string {
   return `a_${entry_id}`;
 }
 
+// Inverse of alert_feed_id: recover the civic alert entry_id from a feed id, for
+// backend dismiss/restore calls that key on the raw entry_id.
+export function alert_entry_id_of(feed_id: string): string {
+  return feed_id.startsWith("a_") ? feed_id.slice(2) : feed_id;
+}
+
 export function FeedScreen(props: {
   alerts: alert_entry[];
   dismissed_alerts: Set<string>;
@@ -42,6 +48,7 @@ export function FeedScreen(props: {
   on_restore_alerts: (ids: string[]) => void;
   reminders: reminders_client;
 }) {
+  "use no memo";
   const t = use_theme();
   const tr = use_t();
   const c = t.color;

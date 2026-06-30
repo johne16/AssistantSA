@@ -5,6 +5,7 @@
 import { create_civic_service } from "./service.js";
 import type {
   agent_request,
+  alert_dismiss_action,
   civic_deps,
   civic_handler,
   civic_read_params,
@@ -52,11 +53,22 @@ export function create_civic_handler(deps: civic_deps): civic_handler {
     });
   }
 
+  // Gateway path. Per-resident alert dismiss/restore; claims are gateway-validated.
+  async function civic_dismiss(
+    action: alert_dismiss_action,
+    entry_id: string,
+    claims: tenant_context_token,
+  ): Promise<void> {
+    return with_logging("civic_dismiss", () =>
+      service.dismiss({ action, entry_id, claims }),
+    );
+  }
+
   async function run_scheduled_fetch(source: fetch_source): Promise<void> {
     return with_logging("run_scheduled_fetch", () =>
       service.run_scheduled_fetch(source),
     );
   }
 
-  return { civic_read, agent_request, run_scheduled_fetch };
+  return { civic_read, agent_request, civic_dismiss, run_scheduled_fetch };
 }
