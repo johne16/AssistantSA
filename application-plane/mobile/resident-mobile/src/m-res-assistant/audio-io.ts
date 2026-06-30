@@ -118,7 +118,15 @@ export function use_audio_io(): audio_io {
     return init.current;
   };
 
-  return {
+  // Build the audio_io object once and keep its identity stable across renders.
+  // All state lives in the refs above, so a single instance stays correct. A
+  // stable identity matters because consumers (use_wake_word, the idle overlay)
+  // key effects on it; a fresh object each render would restart mic capture and
+  // re-subscribe the output level on every parent re-render.
+  const api = useRef<audio_io | null>(null);
+  if (api.current) return api.current;
+
+  api.current = {
     async start_capture(
       on_chunk: (pcm_base64: string) => void,
       on_barge_in: () => void,
@@ -182,6 +190,15 @@ export function use_audio_io(): audio_io {
       // Fresh response turn: stop dropping audio so it plays from the top.
       suppressing.current = false;
     },
+    on_output_level(handler: (level: number) => void): () => void {
+      // Fan the engine's output level out to the idle waveform. Events only
+      // fire while the playback engine is initialized and audibly playing, so
+      // the waveform stays flat unless the assistant is speaking.
+      const sub = addExpoTwoWayAudioEventListener("onOutputVolumeLevelData", (event) => {
+        handler(event.data);
+      });
+      return () => sub.remove();
+    },
     stop_playback(): void {
       // Barge-in or close: flush playback, then tear the engine down and force a
       // fresh initialize() next session.
@@ -200,4 +217,5 @@ export function use_audio_io(): audio_io {
       }
     },
   };
+  return api.current;
 }

@@ -7,6 +7,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 
 import { app_config } from "@/app-config";
 import { use_theme, use_lang } from "@/m-res-shell";
@@ -22,7 +23,7 @@ import {
   use_notifications,
   type notification_preferences as push_preferences,
 } from "@/m-res-notifications";
-import { AssistantScreen } from "@/m-res-assistant";
+import { AssistantScreen, IdleOverlay, use_assistant_engine } from "@/m-res-assistant";
 
 import { TabBar, WakeBar } from "./components/chrome";
 import { FeedScreen, alert_feed_id } from "./screens/feed";
@@ -37,6 +38,14 @@ import {
   type resident_profile,
   type tab_id,
 } from "./types";
+
+// Idle threshold: after this long with no interaction, the full-screen ambient
+// idle overlay appears (and holds the screen awake). Set below the common 30s
+// phone screen-off so the idle screen takes over before the phone would sleep.
+const IDLE_AFTER_MS = 20000;
+
+// Keep-awake tag held while the idle overlay is shown.
+const IDLE_KEEP_AWAKE_TAG = "m-res-portal-idle";
 
 const EMPTY_PROFILE: resident_profile = {
   street: "",
@@ -182,6 +191,48 @@ export function Portal() {
     [reminders],
   );
 
+  // Assistant engine, mounted once here so the "Hey Bex" wake listener and the
+  // mic engine run on every screen (the wake toggle is portal-level), not only
+  // while the Chat tab is mounted. AssistantScreen renders its chat state; the
+  // idle overlay reads its audio output level.
+  const engine = use_assistant_engine({
+    voice_id,
+    wake_enabled,
+    on_set_reminder,
+    on_relink_account: () => set_panel("accounts"),
+  });
+
+  // --- ambient idle overlay (full-screen) driven by inactivity ---
+  const [idle_visible, set_idle_visible] = useState(false);
+  const idle_timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Restart the inactivity countdown and hide the overlay. Called on every touch
+  // (capture phase) and whenever the app returns to the foreground.
+  const reset_idle = useCallback(() => {
+    set_idle_visible(false);
+    if (idle_timer.current) clearTimeout(idle_timer.current);
+    // Only arm the timer while the wake word is on and no voice session is live:
+    // the idle screen is the ambient listening surface, so a muted wake word or
+    // an active conversation shows no overlay.
+    if (!wake_enabled || engine.voice_on) return;
+    idle_timer.current = setTimeout(() => set_idle_visible(true), IDLE_AFTER_MS);
+  }, [wake_enabled, engine.voice_on]);
+  // Arm/disarm the timer when the wake word toggles; clear on unmount.
+  useEffect(() => {
+    reset_idle();
+    return () => {
+      if (idle_timer.current) clearTimeout(idle_timer.current);
+    };
+  }, [reset_idle]);
+  // Hold the screen awake while the idle overlay is shown so the phone does not
+  // sleep; release it when the overlay is dismissed.
+  useEffect(() => {
+    if (!idle_visible) return;
+    void activateKeepAwakeAsync(IDLE_KEEP_AWAKE_TAG);
+    return () => {
+      void deactivateKeepAwake(IDLE_KEEP_AWAKE_TAG);
+    };
+  }, [idle_visible]);
+
   // Measured tab bar + wake bar height, so the chat input lifts above them.
   const [chrome_height, set_chrome_height] = useState(0);
 
@@ -306,14 +357,7 @@ export function Portal() {
   const render_body = () => {
     switch (panel) {
       case "chat":
-        return (
-          <AssistantScreen
-            voice_id={voice_id}
-            keyboard_offset={chrome_height}
-            on_set_reminder={on_set_reminder}
-            on_relink_account={() => set_panel("accounts")}
-          />
-        );
+        return <AssistantScreen engine={engine} keyboard_offset={chrome_height} />;
       case "feed":
         return (
           <FeedScreen
@@ -360,6 +404,13 @@ export function Portal() {
     <SafeAreaView
       edges={["top", "left", "right"]}
       style={{ flex: 1, backgroundColor: t.color.paper }}
+      // Any touch anywhere resets the inactivity countdown. Capture phase so it
+      // fires regardless of which child handles the touch; returns false so the
+      // child still receives it.
+      onStartShouldSetResponderCapture={() => {
+        reset_idle();
+        return false;
+      }}
     >
       <View style={{ flex: 1 }}>{render_body()}</View>
       <View onLayout={(e) => set_chrome_height(e.nativeEvent.layout.height)}>
@@ -369,6 +420,9 @@ export function Portal() {
       {/* Off-screen scrape host, mounted once. Drives on-device account syncs;
           the portal never reads credentials. */}
       <ScrapeRunner ref={runner} />
+      {/* Full-screen ambient idle overlay, shown after inactivity and dismissed
+          on first touch. Above the tab bar so it covers the entire screen. */}
+      <IdleOverlay audio={engine.audio} visible={idle_visible} />
     </SafeAreaView>
   );
 }

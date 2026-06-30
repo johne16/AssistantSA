@@ -159,4 +159,35 @@ export interface audio_io {
   begin_response(): void;
   // Stop and clear playback (e.g. on barge-in or close).
   stop_playback(): void;
+  // Subscribe to the assistant output level (0..1) emitted by the playback
+  // engine. The idle waveform drives its amplitude from this; it reacts to the
+  // assistant's voice only, never the user's input. Returns an unsubscribe fn.
+  on_output_level(handler: (level: number) => void): () => void;
 }
+
+// Return shape of use_assistant_engine: the assistant's audio engine, chat
+// thread, and voice controls, owned at portal level and consumed by
+// AssistantScreen (rendering) and the idle overlay (audio output level).
+export interface assistant_engine {
+  audio: audio_io;
+  turns: chat_turn[];
+  draft: string;
+  set_draft: (text: string) => void;
+  sending: boolean;
+  voice_state: voice_status;
+  voice_on: boolean;
+  submit: () => void;
+  toggle_voice: () => void;
+  on_failure_action: (turn: chat_turn) => void;
+}
+
+// Wake-word listening lifecycle, surfaced to the assistant surface. "loading"
+// covers the one-time ONNX session creation; "listening" means the engine is
+// consuming mic frames; "detected" is a transient state on a positive match
+// before the voice session takes the mic.
+export type wake_status = "idle" | "loading" | "listening" | "detected" | "error";
+
+// One captured PCM frame handed to the wake engine: 16-bit mono samples at
+// 16000 Hz, frame length a multiple of 80ms (1280 samples). Matches the capture
+// path; no resampling.
+export type wake_pcm_frame = Int16Array;

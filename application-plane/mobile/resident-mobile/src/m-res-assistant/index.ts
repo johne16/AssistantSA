@@ -1,9 +1,13 @@
 // Public surface of m-res-assistant: the screen the portal mounts for
-// "Ask AssistantSA", plus the module's owned types.
+// "Ask AssistantSA", the portal-owned engine hook and idle overlay, plus the
+// module's owned types.
 
 export { AssistantScreen } from "./AssistantScreen";
+export { use_assistant_engine } from "./use_assistant_engine";
+export { IdleOverlay } from "./IdleOverlay";
 
 export type {
+  assistant_engine,
   assistant_query,
   assistant_sse_event,
   assistant_token_payload,

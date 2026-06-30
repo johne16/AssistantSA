@@ -9,22 +9,30 @@
 // building. Payload decodes to { sub, city_tenant_id, iat, exp }.
 import { tenant_context_token } from "./secrets/tenant_context_token";
 import Constants from "expo-constants";
+import getDevServer from "react-native/Libraries/Core/Devtools/getDevServer";
 
 // Port the ap-server REST/WS gateway listens on. The dev host is resolved at
 // runtime; only the port is fixed.
 const api_gateway_port = 8080;
 
-// Resolve the dev machine's host the device should reach for the gateway.
-// Constants.expoConfig.hostUri is the Metro dev server origin (e.g.
-// "192.168.1.5:8081"), present only during development under @expo/cli. The
-// Expo CLI fills it with the LAN IP, which is reachable from the Android
-// emulator, an Android physical device, the iOS simulator, and an iOS physical
-// device alike, so one derivation covers every target. The host portion is
-// stripped of the Metro port and the gateway port is applied. Falls back to
-// localhost when hostUri is absent (e.g. a production build).
+// Resolve the dev machine's host the device should reach for the gateway. The
+// host is taken from the Metro dev server origin the JS bundle was actually
+// loaded from (getDevServer().url, e.g. "http://10.0.2.2:8081/"). Unlike
+// Constants.expoConfig.hostUri (undefined in development builds), this is
+// populated in Expo Go, development builds, the Android emulator, an Android
+// physical device, the iOS simulator, and an iOS physical device alike, and
+// already carries the host each target can reach. The host portion is extracted
+// and the gateway port is applied. Falls back to Constants.expoConfig.hostUri,
+// then localhost, when no dev server origin is available (e.g. a production
+// build).
 function resolve_api_gateway_base_url(): string {
+    const dev_server_url = getDevServer().url;
+    const dev_server_host = dev_server_url
+        ? new URL(dev_server_url).hostname
+        : undefined;
     const host_uri = Constants.expoConfig?.hostUri;
-    const dev_host = host_uri ? host_uri.split(":")[0] : "localhost";
+    const dev_host =
+        dev_server_host ?? (host_uri ? host_uri.split(":")[0] : "localhost");
     return `http://${dev_host}:${api_gateway_port}`;
 }
 

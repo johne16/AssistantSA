@@ -33,11 +33,11 @@ export const tab_root: Record<tab_id, panel_id> = {
   settings: "settings",
 };
 
-// A bottom tab entry: identity, label, and glyph.
+// A bottom tab entry: identity and label. The icon is drawn from the tab id
+// (see TAB_ICONS in chrome.tsx), mirroring the mockup's line icons.
 export interface tab_def {
   id: tab_id;
   label: string;
-  glyph: string;
 }
 
 // Linked utility account, tracked in portal state. site_id keys the keystore + sync.

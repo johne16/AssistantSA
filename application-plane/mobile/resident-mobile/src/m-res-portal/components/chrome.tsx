@@ -11,6 +11,7 @@ import {
   View,
   type LayoutChangeEvent,
 } from "react-native";
+import { Canvas, Group, Path, Skia } from "@shopify/react-native-skia";
 import { use_theme, use_t } from "@/m-res-shell";
 import type { tab_def, tab_id } from "../types";
 
@@ -34,11 +35,59 @@ export function Screen(props: { children: React.ReactNode }) {
 
 // Bottom tab order mirrors the mockup: Chat, Feed, Accounts, Settings.
 const TABS: tab_def[] = [
-  { id: "chat", label: "Chat", glyph: "💬" },
-  { id: "feed", label: "Feed", glyph: "🔔" },
-  { id: "accounts", label: "Accounts", glyph: "💳" },
-  { id: "settings", label: "Settings", glyph: "⚙️" },
+  { id: "chat", label: "Chat" },
+  { id: "feed", label: "Feed" },
+  { id: "accounts", label: "Accounts" },
+  { id: "settings", label: "Settings" },
 ];
+
+// Tab icons, as the mockup's SVG path data (24x24 viewBox, stroked line icons).
+// Each tab is one or more subpaths drawn as strokes; rendered with Skia so no
+// extra icon dependency is needed.
+const TAB_ICON_SIZE = 23;
+const TAB_ICON_VIEWBOX = 24;
+const TAB_ICONS: Record<tab_id, string[]> = {
+  chat: ["M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"],
+  feed: [
+    "M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9",
+    "M13.7 21a2 2 0 0 1-3.4 0",
+  ],
+  accounts: [
+    "M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z",
+    "M2 10h20",
+  ],
+  settings: [
+    "M9 12a3 3 0 1 0 6 0 3 3 0 1 0-6 0z",
+    "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
+  ],
+};
+
+// One tab icon: the mockup's stroked line icon, scaled from the 24px viewBox to
+// the rendered size and tinted by the active/inactive color.
+function TabIcon(props: { tab: tab_id; color: string }) {
+  const scale = TAB_ICON_SIZE / TAB_ICON_VIEWBOX;
+  return (
+    <Canvas style={{ width: TAB_ICON_SIZE, height: TAB_ICON_SIZE }}>
+      <Group transform={[{ scale }]}>
+        {TAB_ICONS[props.tab].map((d, i) => {
+          const path = Skia.Path.MakeFromSVGString(d);
+          if (!path) return null;
+          return (
+            <Path
+              key={i}
+              path={path}
+              style="stroke"
+              strokeWidth={2}
+              strokeJoin="round"
+              strokeCap="round"
+              color={props.color}
+            />
+          );
+        })}
+      </Group>
+    </Canvas>
+  );
+}
 
 // Portal-level wake bar (mockup .wake): live dot, wake-word line, mute toggle.
 export function WakeBar(props: { muted: boolean; onToggle: () => void }) {
@@ -131,9 +180,7 @@ export function TabBar(props: {
             style={{ flex: 1, alignItems: "center", gap: 5, paddingVertical: 2 }}
           >
             <View>
-              <Text style={{ fontSize: 20, color: on ? c.primary : c.ink_subtle }}>
-                {tab.glyph}
-              </Text>
+              <TabIcon tab={tab.id} color={on ? c.primary : c.ink_subtle} />
               {badge > 0 ? (
                 <View
                   style={{
