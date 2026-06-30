@@ -50,13 +50,9 @@ export function create_reminders_service(
     token: tenant_context_token,
     reminder_id: string,
   ): Promise<void> {
-    await store.set_status(
-      token.city_tenant_id,
-      token.sub,
-      reminder_id,
-      "dismissed",
-      null,
-    );
+    // Dismissal removes the row rather than soft-marking it, so dismissed
+    // reminders do not accumulate. The client's undo re-creates the reminder.
+    await store.delete_reminder(token.city_tenant_id, token.sub, reminder_id);
   }
 
   // Scheduler path: flip every upcoming reminder whose scheduled_at has passed to

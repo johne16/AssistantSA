@@ -481,6 +481,13 @@ export function create_reminders_store(pool: Pool): reminders_store {
         [sub, reminder_id, status, delivered_at],
       );
     },
+    async delete_reminder(city_tenant_id, sub, reminder_id) {
+      const s = await scoped(pool, city_tenant_id);
+      await pool.query(
+        `DELETE FROM ${s}.reminders_reminder WHERE sub = $1 AND reminder_id = $2`,
+        [sub, reminder_id],
+      );
+    },
     async list_due(city_tenant_id, before_iso): Promise<reminder_due[]> {
       const s = await scoped(pool, city_tenant_id);
       const r = await pool.query(

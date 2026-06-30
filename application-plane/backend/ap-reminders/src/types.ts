@@ -77,6 +77,8 @@ export interface reminders_store {
     status: reminder_status,
     delivered_at: string | null,
   ): Promise<void>;
+  // Remove a reminder row outright (used when the resident dismisses it).
+  delete_reminder(city_tenant_id: string, sub: string, reminder_id: string): Promise<void>;
   // Upcoming reminders across the city whose scheduled_at is at or before the cutoff.
   list_due(city_tenant_id: string, before_iso: string): Promise<reminder_due[]>;
   list_tenants(): Promise<string[]>;

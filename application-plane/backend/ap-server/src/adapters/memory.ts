@@ -223,6 +223,14 @@ export function create_memory_reminders_store(): reminders_store {
         ),
       );
     },
+    async delete_reminder(city, sub, reminder_id) {
+      const key = k(city, sub);
+      const list = reminders.get(key) ?? [];
+      reminders.set(
+        key,
+        list.filter((r) => r.reminder_id !== reminder_id),
+      );
+    },
     async list_due(city, before_iso): Promise<reminder_due[]> {
       // Compare as instants, not strings: scheduled_at may carry a UTC offset
       // while before_iso is a Z timestamp, so a lexical compare is wrong.
