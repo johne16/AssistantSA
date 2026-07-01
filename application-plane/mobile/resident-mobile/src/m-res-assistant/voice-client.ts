@@ -181,6 +181,7 @@ export function open_voice_stream(
     let frame: {
       type?: string;
       text?: string;
+      final?: boolean;
       title?: string;
       body?: string;
       when?: string;
@@ -209,8 +210,11 @@ export function open_voice_stream(
       return;
     }
     if (frame.type === "user_transcript" || frame.type === "assistant_transcript") {
+      const is_final = frame.final ?? true;
       if (frame.type === "user_transcript") {
-        handlers.on_user_speech?.();
+        // Only a finalized utterance holds the silence countdown (a turn is
+        // incoming); interim partials keep the bubble updating without arming it.
+        if (is_final) handlers.on_user_speech?.();
       } else {
         handlers.on_activity?.();
       }
@@ -218,7 +222,7 @@ export function open_voice_stream(
         kind: "transcript",
         role: frame.type === "user_transcript" ? "user" : "assistant",
         text: frame.text ?? "",
-        final: true,
+        final: is_final,
       };
       handlers.on_transcript(event);
     }

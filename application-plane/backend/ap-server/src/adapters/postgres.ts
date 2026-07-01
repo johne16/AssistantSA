@@ -121,17 +121,25 @@ async function ensure_schema(pool: Pool, schema: string): Promise<void> {
     sign_in_url text NOT NULL,
     PRIMARY KEY (sub, site_id)
   )`);
-  // reminders table
+  // reminders table. scheduled_at is text, not timestamptz: it carries the local
+  // wall-clock ISO the assistant produced (with offset), and the client renders
+  // its digits verbatim. A timestamptz column normalizes to UTC on read, which
+  // would shift the displayed hour by the offset. Instant comparisons cast it.
   await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.reminders_reminder (
     sub text NOT NULL,
     reminder_id text NOT NULL,
-    scheduled_at timestamptz NOT NULL,
+    scheduled_at text NOT NULL,
     title text NOT NULL,
     body text NOT NULL,
     status text NOT NULL,
     delivered_at timestamptz,
     PRIMARY KEY (sub, reminder_id)
   )`);
+  // Migrate an existing timestamptz column to text so the offset survives reads.
+  await pool.query(
+    `ALTER TABLE ${schema}.reminders_reminder
+       ALTER COLUMN scheduled_at TYPE text USING scheduled_at::text`,
+  );
   // notifications tables
   await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.notifications_registration (
     sub text PRIMARY KEY,
@@ -448,11 +456,12 @@ export function create_utility_store(pool: Pool): utility_store {
 
 // --- reminders store ---
 
-// Map a reminders_reminder row to a reminder_entry. timestamptz columns come back
-// as Date; normalize to ISO strings the module contract expects.
+// Map a reminders_reminder row to a reminder_entry. scheduled_at is a text column
+// holding the assistant's local wall-clock ISO, returned verbatim so its offset
+// and displayed hour are preserved; delivered_at is timestamptz (a true instant).
 function reminder_from_row(row: {
   reminder_id: string;
-  scheduled_at: Date;
+  scheduled_at: string;
   title: string;
   body: string;
   status: string;
@@ -460,7 +469,7 @@ function reminder_from_row(row: {
 }): reminder_entry {
   return {
     reminder_id: row.reminder_id,
-    scheduled_at: row.scheduled_at.toISOString(),
+    scheduled_at: row.scheduled_at,
     title: row.title,
     body: row.body,
     status: row.status as reminder_status,
@@ -497,7 +506,7 @@ export function create_reminders_store(pool: Pool): reminders_store {
       const s = await scoped(pool, city_tenant_id);
       const r = await pool.query(
         `SELECT reminder_id, scheduled_at, title, body, status, delivered_at
-         FROM ${s}.reminders_reminder WHERE sub = $1 ORDER BY scheduled_at`,
+         FROM ${s}.reminders_reminder WHERE sub = $1 ORDER BY scheduled_at::timestamptz`,
         [sub],
       );
       return r.rows.map(reminder_from_row);
@@ -523,7 +532,7 @@ export function create_reminders_store(pool: Pool): reminders_store {
       const r = await pool.query(
         `SELECT sub, reminder_id, scheduled_at, title, body, status, delivered_at
          FROM ${s}.reminders_reminder
-         WHERE status = 'upcoming' AND scheduled_at <= $1`,
+         WHERE status = 'upcoming' AND scheduled_at::timestamptz <= $1::timestamptz`,
         [before_iso],
       );
       return r.rows.map((row) => ({

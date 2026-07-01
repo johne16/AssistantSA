@@ -239,7 +239,9 @@ export function useAssistantEngine(props: {
         id = next_turn_id();
         ids[event.role] = id;
       }
-      upsert_turn(id, event.role, event.text, !event.final, true);
+      // Server sends the full transcript text each event (interim or final), so
+      // replace the bubble's text rather than append fragments.
+      upsert_turn(id, event.role, event.text, !event.final, false);
       if (event.final) ids[event.role] = null;
     },
     [upsert_turn],

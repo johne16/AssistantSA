@@ -32,11 +32,15 @@ struct VoiceHandshake {
 }
 
 /// Outbound transcript frame on the client socket. Audio rides as binary frames.
+/// is_final is false while a user transcript is still streaming (interim), true
+/// once the utterance closes; assistant transcripts are always final.
 #[derive(Debug, Serialize)]
 struct TranscriptFrame<'a> {
     #[serde(rename = "type")]
     kind: &'a str,
     text: String,
+    #[serde(rename = "final")]
+    is_final: bool,
 }
 
 /// Outbound control frame (no payload), e.g. response_start.
@@ -87,8 +91,8 @@ impl ResponseSink for WsResponseSink {
                 )
             }
             ResponseEvent::AudioChunk(bytes) => Message::Binary(bytes.into()),
-            ResponseEvent::UserTranscript(text) => {
-                let frame = TranscriptFrame { kind: "user_transcript", text };
+            ResponseEvent::UserTranscript { text, is_final } => {
+                let frame = TranscriptFrame { kind: "user_transcript", text, is_final };
                 Message::Text(
                     serde_json::to_string(&frame)
                         .map_err(|e| VoiceError::WebSocket(e.to_string()))?
@@ -96,7 +100,7 @@ impl ResponseSink for WsResponseSink {
                 )
             }
             ResponseEvent::AssistantTranscript(text) => {
-                let frame = TranscriptFrame { kind: "assistant_transcript", text };
+                let frame = TranscriptFrame { kind: "assistant_transcript", text, is_final: true };
                 Message::Text(
                     serde_json::to_string(&frame)
                         .map_err(|e| VoiceError::WebSocket(e.to_string()))?
@@ -144,6 +148,10 @@ fn load_config() -> VoiceConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(16000),
+        stt_utterance_end_ms: env::var("stt_utterance_end_ms")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000),
         enable_barge_in: env::var("enable_barge_in")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -184,6 +192,7 @@ async fn handle_client(tcp: TcpStream, config: VoiceConfig) -> Result<(), VoiceE
         config.deepgram_api_key.clone(),
         config.stt_encoding.clone(),
         config.stt_sample_rate,
+        config.stt_utterance_end_ms,
     )
     .await?;
     let audio_up = transcriber.audio_sender();

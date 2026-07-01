@@ -16,13 +16,13 @@ use crate::types::*;
 
 // ---- Ports (traits) so concrete providers are swappable ----
 
-/// STT port. Streams audio up, yields interim + final transcripts.
+/// STT port. Streams audio up, yields transcripts and UtteranceEnd markers.
 #[async_trait]
 pub trait Transcriber: Send + Sync {
     /// Send an audio frame. Drops the frame (not crash) if socket closed.
     async fn send_audio(&self, frame: Vec<u8>) -> Result<(), VoiceError>;
-    /// Pull the next transcript, interim or final.
-    async fn next_transcript(&mut self) -> Option<Transcript>;
+    /// Pull the next STT event: a transcript or an UtteranceEnd marker.
+    async fn next_transcript(&mut self) -> Option<SttEvent>;
 }
 /// Spec alias.
 pub trait Stt: Transcriber {}
@@ -79,7 +79,7 @@ const DEEPGRAM_MAX_RECONNECT: u32 = 3;
 
 pub struct DeepgramTranscriber {
     audio_tx: mpsc::UnboundedSender<Vec<u8>>,
-    transcript_rx: mpsc::UnboundedReceiver<Transcript>,
+    transcript_rx: mpsc::UnboundedReceiver<SttEvent>,
 }
 
 impl DeepgramTranscriber {
@@ -90,13 +90,15 @@ impl DeepgramTranscriber {
         api_key: String,
         encoding: String,
         sample_rate: u32,
+        utterance_end_ms: u32,
     ) -> Result<Self, VoiceError> {
         let (audio_tx, audio_rx) = mpsc::unbounded_channel::<Vec<u8>>();
-        let (transcript_tx, transcript_rx) = mpsc::unbounded_channel::<Transcript>();
+        let (transcript_tx, transcript_rx) = mpsc::unbounded_channel::<SttEvent>();
         tokio::spawn(deepgram_loop(
             api_key,
             encoding,
             sample_rate,
+            utterance_end_ms,
             audio_rx,
             transcript_tx,
         ));
@@ -117,12 +119,18 @@ async fn deepgram_loop(
     api_key: String,
     encoding: String,
     sample_rate: u32,
+    utterance_end_ms: u32,
     mut audio_rx: mpsc::UnboundedReceiver<Vec<u8>>,
-    transcript_tx: mpsc::UnboundedSender<Transcript>,
+    transcript_tx: mpsc::UnboundedSender<SttEvent>,
 ) {
+    // Turn boundary is UtteranceEnd (word-timing gap), not endpointing: endpointing
+    // is disabled so a silence gap mid-request (e.g. the pause after the wake word)
+    // never fires speech_final and splits one request into two turns. UtteranceEnd
+    // requires interim_results and vad_events.
     let url = format!(
         "wss://api.deepgram.com/v1/listen?\
-        encoding={encoding}&sample_rate={sample_rate}&interim_results=true&model=nova-3&language=en-US"
+        encoding={encoding}&sample_rate={sample_rate}&interim_results=true&vad_events=true&\
+        endpointing=false&utterance_end_ms={utterance_end_ms}&model=nova-3&language=en-US"
     );
     let url = url.as_str();
     let mut attempts = 0u32;
@@ -164,14 +172,22 @@ async fn deepgram_loop(
                 maybe_msg = stream.next() => {
                     match maybe_msg {
                         Some(Ok(Message::Text(txt))) => {
-                            if let Ok(res) = serde_json::from_str::<DeepgramResult>(&txt) {
+                            // Check the message type first: UtteranceEnd carries
+                            // "channel":[..] (an array), which fails the full Results
+                            // struct parse, so it must be detected before that.
+                            let msg_type = serde_json::from_str::<DeepgramEnvelope>(&txt)
+                                .ok()
+                                .and_then(|e| e.msg_type);
+                            if msg_type.as_deref() == Some("UtteranceEnd") {
+                                let _ = transcript_tx.send(SttEvent::UtteranceEnd);
+                            } else if let Ok(res) = serde_json::from_str::<DeepgramResult>(&txt) {
                                 if let Some(ch) = res.channel {
                                     if let Some(alt) = ch.alternatives.into_iter().next() {
                                         if !alt.transcript.is_empty() {
-                                            let _ = transcript_tx.send(Transcript {
+                                            let _ = transcript_tx.send(SttEvent::Transcript(Transcript {
                                                 text: alt.transcript,
                                                 is_final: res.is_final.unwrap_or(false),
-                                            });
+                                            }));
                                         }
                                     }
                                 }
@@ -198,7 +214,7 @@ impl Transcriber for DeepgramTranscriber {
             .send(frame)
             .map_err(|_| VoiceError::FrameDropped)
     }
-    async fn next_transcript(&mut self) -> Option<Transcript> {
+    async fn next_transcript(&mut self) -> Option<SttEvent> {
         self.transcript_rx.recv().await
     }
 }
@@ -436,14 +452,62 @@ impl VoiceSession {
             }
         });
 
-        // Ingestion pump: only final transcripts matter here; each starts a turn.
-        while let Some(t) = self.stt.next_transcript().await {
-            if t.is_final && !t.text.trim().is_empty() {
-                let _ = self
-                    .sink
-                    .send(ResponseEvent::UserTranscript(t.text.clone()))
-                    .await;
-                let _ = turn_tx.send(t.text);
+        // Ingestion pump: accumulate final transcripts into one utterance and start
+        // a turn only on UtteranceEnd (the word-timing gap). This merges pieces that
+        // Deepgram finalized separately across a pause into a single request.
+        // buffer holds the finalized text of the utterance so far. Interim results
+        // are shown appended to it live but not stored, since Deepgram revises them.
+        let mut buffer = String::new();
+        while let Some(event) = self.stt.next_transcript().await {
+            match event {
+                SttEvent::Transcript(t) => {
+                    let piece = t.text.trim();
+                    if piece.is_empty() {
+                        continue;
+                    }
+                    if t.is_final {
+                        if !buffer.is_empty() {
+                            buffer.push(' ');
+                        }
+                        buffer.push_str(piece);
+                        // Stream the finalized text so far (still not the turn boundary).
+                        let _ = self
+                            .sink
+                            .send(ResponseEvent::UserTranscript {
+                                text: buffer.clone(),
+                                is_final: false,
+                            })
+                            .await;
+                    } else {
+                        // Interim: show buffer + the live partial without storing it.
+                        let display = if buffer.is_empty() {
+                            piece.to_string()
+                        } else {
+                            format!("{buffer} {piece}")
+                        };
+                        let _ = self
+                            .sink
+                            .send(ResponseEvent::UserTranscript {
+                                text: display,
+                                is_final: false,
+                            })
+                            .await;
+                    }
+                }
+                SttEvent::UtteranceEnd => {
+                    if !buffer.trim().is_empty() {
+                        let text = std::mem::take(&mut buffer);
+                        // Final: closes the bubble and dispatches the turn to the LLM.
+                        let _ = self
+                            .sink
+                            .send(ResponseEvent::UserTranscript {
+                                text: text.clone(),
+                                is_final: true,
+                            })
+                            .await;
+                        let _ = turn_tx.send(text);
+                    }
+                }
             }
         }
         drop(turn_tx);

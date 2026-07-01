@@ -11,5 +11,5 @@ pub use service::{
 };
 pub use types::{
     FillerPool, LatencyTracker, Percentiles, ResponseEvent, SentenceStreamer, Stage,
-    TenantContextToken, Transcript, TtsSettings, VoiceConfig, VoiceError, VoiceQuery,
+    SttEvent, TenantContextToken, Transcript, TtsSettings, VoiceConfig, VoiceError, VoiceQuery,
 };

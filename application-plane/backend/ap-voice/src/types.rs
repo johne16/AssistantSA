@@ -32,6 +32,16 @@ pub struct Transcript {
     pub is_final: bool,
 }
 
+/// An event off the STT stream: either a transcript, or Deepgram's UtteranceEnd
+/// message (a word-timing gap marking end of speech). UtteranceEnd is the turn
+/// boundary; endpointing/speech_final is not used, so a pause mid-utterance (e.g.
+/// after the wake word) never splits one spoken request into two turns.
+#[derive(Debug, Clone)]
+pub enum SttEvent {
+    Transcript(Transcript),
+    UtteranceEnd,
+}
+
 /// Typed errors. A provider error aborts only the current turn, not the session.
 #[derive(Debug, Error)]
 pub enum VoiceError {
@@ -69,8 +79,10 @@ pub enum ResponseEvent {
     ResponseStart,
     /// MP3 audio chunk; streamed, never fully buffered.
     AudioChunk(Vec<u8>),
-    /// User's transcribed query text for the shared chat thread.
-    UserTranscript(String),
+    /// User's transcribed query text for the shared chat thread. Streamed live:
+    /// is_final is false for interim/partial text (the bubble keeps updating) and
+    /// true once UtteranceEnd closes the utterance.
+    UserTranscript { text: String, is_final: bool },
     /// Assistant reply text for the shared chat thread.
     AssistantTranscript(String),
     /// A reminder the assistant set; forwarded as a text frame to the client.
@@ -99,6 +111,9 @@ pub struct VoiceConfig {
     pub stt_encoding: String,
     /// Uplink sample rate in Hz. Must match the mobile capture rate. Default 16000.
     pub stt_sample_rate: u32,
+    /// Deepgram utterance_end_ms: silence gap (ms) between finalized words before
+    /// UtteranceEnd fires, which is the turn boundary. Floor 1000 per Deepgram.
+    pub stt_utterance_end_ms: u32,
     /// When false, the server ignores client barge_in messages and every reply
     /// plays to completion.
     pub enable_barge_in: bool,
@@ -135,6 +150,15 @@ impl Default for TtsSettings {
             output_format: "pcm_16000".to_string(),
         }
     }
+}
+
+/// Just the type tag of any Deepgram message, parsed first to tell a Results
+/// message (channel is an object) from an UtteranceEnd message (channel is an
+/// array), which would otherwise fail the full DeepgramResult parse.
+#[derive(Debug, Deserialize)]
+pub struct DeepgramEnvelope {
+    #[serde(rename = "type")]
+    pub msg_type: Option<String>,
 }
 
 /// Deepgram streaming result message (subset we read).
