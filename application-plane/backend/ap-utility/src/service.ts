@@ -54,7 +54,7 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
     const sub = token.sub;
     switch (resource) {
       case "bills":
-        return store.read_bills(tid, sub, params.account_ref);
+        return store.read_bills(tid, sub, params.site_id);
       case "usage":
         return store.read_usage(tid, sub, params.account_ref);
       case "outage":
@@ -67,6 +67,7 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
     // with the store time so reads can report when the data was recorded.
     const recorded_at = clock.now().toISOString();
     const stamped: bill_push = {
+      site_id: push_payload.site_id,
       bills: push_payload.bills.map((b) => ({ ...b, recorded_at })),
       usage: push_payload.usage.map((u) => ({ ...u, recorded_at })),
     };

@@ -4,4 +4,4 @@ export type {
   tenant_context_token,
 } from "./types";
 export { load_resident_session, parse_claims } from "./session";
-export { SessionProvider, use_resident_session } from "./session-context";
+export { SessionProvider, useResidentSession } from "./session-context";

@@ -87,9 +87,9 @@ async function ensure_schema(pool: Pool, schema: string): Promise<void> {
   // utility tables
   await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.utility_bill (
     sub text NOT NULL,
-    statement_id text NOT NULL,
+    site_id text NOT NULL,
     payload jsonb NOT NULL,
-    PRIMARY KEY (sub, statement_id)
+    PRIMARY KEY (sub, site_id)
   )`);
   await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.utility_usage (
     sub text NOT NULL,
@@ -302,12 +302,12 @@ async function insert_civic(
 
 export function create_utility_store(pool: Pool): utility_store {
   return {
-    async read_bills(city_tenant_id, sub, account_ref) {
+    async read_bills(city_tenant_id, sub, site_id) {
       const s = await scoped(pool, city_tenant_id);
-      const r = account_ref
+      const r = site_id
         ? await pool.query(
-            `SELECT payload FROM ${s}.utility_bill WHERE sub = $1 AND payload->>'account_ref' = $2`,
-            [sub, account_ref],
+            `SELECT payload FROM ${s}.utility_bill WHERE sub = $1 AND site_id = $2`,
+            [sub, site_id],
           )
         : await pool.query(`SELECT payload FROM ${s}.utility_bill WHERE sub = $1`, [sub]);
       return r.rows.map((row) => row.payload as bill_view);
@@ -331,10 +331,10 @@ export function create_utility_store(pool: Pool): utility_store {
       const s = await scoped(pool, city_tenant_id);
       for (const b of push.bills) {
         await pool.query(
-          `INSERT INTO ${s}.utility_bill (sub, statement_id, payload)
+          `INSERT INTO ${s}.utility_bill (sub, site_id, payload)
            VALUES ($1, $2, $3)
-           ON CONFLICT (sub, statement_id) DO UPDATE SET payload = EXCLUDED.payload`,
-          [sub, b.statement_id, b],
+           ON CONFLICT (sub, site_id) DO UPDATE SET payload = EXCLUDED.payload`,
+          [sub, push.site_id, b],
         );
       }
       for (const u of push.usage) {

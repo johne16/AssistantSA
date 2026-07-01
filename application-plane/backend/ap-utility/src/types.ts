@@ -17,9 +17,8 @@ export type notify_request_type = "bill_due" | "power_outage";
 // Stored bill record served in bills views. recorded_at is stamped when the
 // record is stored to the DB (absent on the inbound client push).
 export interface bill_view {
-  account_ref: string;
   due_date: string; // ISO date
-  statement_id: string;
+  total: number; // amount due
   recorded_at?: string; // ISO timestamp the record was stored
 }
 
@@ -43,8 +42,9 @@ export interface outage_view {
   recorded_at?: string; // ISO timestamp the record was stored
 }
 
-// Client push payload: bills + usage scraped on device.
+// Client push payload: bills + usage scraped on device for one linked site.
 export interface bill_push {
+  site_id: string;
   bills: bill_view[];
   usage: usage_view[];
 }
@@ -79,12 +79,13 @@ export interface notify_request {
 export interface agent_request {
   tenant_context_token: string;
   operation: utility_resource;
-  params: { account_ref?: string };
+  params: { account_ref?: string; site_id?: string };
 }
 
 // utilityRead params.
 export interface utility_read_params {
   account_ref?: string;
+  site_id?: string;
 }
 
 // Raw outage entry returned by utility_systems source.
@@ -137,7 +138,7 @@ export interface utility_config {
 
 // Persistence port. Scoped per city_tenant_id by the adapter.
 export interface utility_store {
-  read_bills(city_tenant_id: string, sub: string, account_ref?: string): Promise<bill_view[]>;
+  read_bills(city_tenant_id: string, sub: string, site_id?: string): Promise<bill_view[]>;
   read_usage(city_tenant_id: string, sub: string, account_ref?: string): Promise<usage_view[]>;
   read_outages(city_tenant_id: string, sub: string): Promise<outage_view[]>;
   store_bill_push(city_tenant_id: string, sub: string, push: bill_push): Promise<void>;

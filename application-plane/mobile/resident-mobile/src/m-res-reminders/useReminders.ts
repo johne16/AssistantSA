@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { use_resident_session } from "@/m-res-auth";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useResidentSession } from "@/m-res-auth";
 import { app_config } from "@/app-config";
 
+import { reminders_query_keys } from "./types";
 import type { new_reminder, reminder_entry, reminders_client } from "./types";
 
-// Gateway-backed reminder store. Reminders live in ap-reminders and are read and
-// written through the /reminders/* routes, so they survive an app reinstall and
-// match what the backend holds. The Feed reads upcoming and fired reminders from
-// here and merges them with civic alerts on the time spine.
+// Gateway-backed reminder store. Reminders live in ap-reminders, read and written
+// through the /reminders/* routes. The list is read with React Query; the
+// on-device firing timer and optimistic add/dismiss/restore write into the query
+// cache.
 
 const set_path = "/reminders/set";
 const list_path = "/reminders/list";
@@ -62,43 +64,50 @@ function next_local_id(): string {
   return `local_${local_counter}`;
 }
 
-export function use_reminders(): reminders_client {
-  const { tenant_context_token } = use_resident_session();
+export function useReminders(): reminders_client {
+  const { tenant_context_token } = useResidentSession();
   const base_url = (app_config as { api_gateway_base_url: string }).api_gateway_base_url;
+  const client = useQueryClient();
 
-  const [reminders, set_reminders] = useState<reminder_entry[]>([]);
-  // Remembers the status a reminder held before dismissal, so restore() returns
-  // it to its prior status rather than guessing.
-  const prior_status = useRef<Map<string, reminder_entry["status"]>>(new Map());
-  const loaded = useRef(false);
-  // Listeners notified when a reminder fires on-device (portal -> local banner).
-  const fire_listeners = useRef<Set<(entry: reminder_entry) => void>>(new Set());
-
-  // Re-read the resident's reminders from the gateway. This module is the only
-  // client writer of reminders; the assistant's set_reminder tool persists the
-  // row server-side, so after it fires the portal calls refresh to pull the new
-  // row (with its server id) rather than writing a duplicate.
-  const refresh = useCallback(async (): Promise<void> => {
-    try {
+  // The reminder list. The queryFn throws on a bad status so RQ retries.
+  const list_query = useQuery({
+    queryKey: reminders_query_keys.list,
+    queryFn: async (): Promise<reminder_entry[]> => {
       const res = await fetch(`${base_url}${list_path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tenant_context_token }),
       });
-      if (!res.ok) return;
-      const list = (await res.json()) as gateway_reminder[];
-      set_reminders(list.map(to_client));
-    } catch {
-      // Network unavailable: leave the current list in place.
-    }
-  }, [base_url, tenant_context_token]);
+      if (!res.ok) throw new Error(`reminders-list ${res.status}`);
+      const gateway_list = (await res.json()) as gateway_reminder[];
+      return gateway_list.map(to_client);
+    },
+  });
 
-  // Load once on mount.
-  useEffect(() => {
-    if (loaded.current) return;
-    loaded.current = true;
-    void refresh();
-  }, [refresh]);
+  const reminders = useMemo(() => list_query.data ?? [], [list_query.data]);
+
+  // Write the reminder list into the query cache.
+  const set_reminders = useCallback(
+    (updater: (prev: reminder_entry[]) => reminder_entry[]) => {
+      client.setQueryData<reminder_entry[]>(reminders_query_keys.list, (prev) =>
+        updater(prev ?? []),
+      );
+    },
+    [client],
+  );
+
+  // Remembers the status a reminder held before dismissal, so restore() returns
+  // it to its prior status rather than guessing.
+  const prior_status = useRef<Map<string, reminder_entry["status"]>>(new Map());
+  // Listeners notified when a reminder fires on-device (portal -> local banner).
+  const fire_listeners = useRef<Set<(entry: reminder_entry) => void>>(new Set());
+
+  // Re-read the reminder list from the backend. The portal calls this after the
+  // assistant's set_reminder tool persists a reminder, so the new row (with its
+  // server id) is pulled in without the portal writing anything.
+  const refresh = useCallback(async (): Promise<void> => {
+    await client.invalidateQueries({ queryKey: reminders_query_keys.list });
+  }, [client]);
 
   // Client-side firing. Reminders fire on the device, not from the backend: the
   // backend only stores them so they sync to the user's other clients. Arm a
@@ -150,7 +159,7 @@ export function use_reminders(): reminders_client {
       }
     }, delay);
     return () => clearTimeout(handle);
-  }, [reminders, reschedule_tick]);
+  }, [reminders, reschedule_tick, set_reminders]);
 
   const add = useCallback(
     (input: new_reminder): reminder_entry => {
@@ -191,7 +200,7 @@ export function use_reminders(): reminders_client {
 
       return entry;
     },
-    [base_url, tenant_context_token],
+    [base_url, tenant_context_token, set_reminders],
   );
 
   const dismiss = useCallback(
@@ -211,7 +220,7 @@ export function use_reminders(): reminders_client {
         body: JSON.stringify({ tenant_context_token, reminder_id: id }),
       }).catch(() => {});
     },
-    [base_url, tenant_context_token],
+    [base_url, tenant_context_token, set_reminders],
   );
 
   const restore = useCallback(
@@ -249,7 +258,7 @@ export function use_reminders(): reminders_client {
         }
       })();
     },
-    [base_url, tenant_context_token],
+    [base_url, tenant_context_token, set_reminders],
   );
 
   const on_fire = useCallback(

@@ -146,15 +146,19 @@ export function create_gateway(modules: gateway_modules): express.Express {
     }
   });
 
-  // POST /utility/bill-push { tenant_context_token, bills, usage }
+  // POST /utility/bill-push { tenant_context_token, site_id, bills, usage }
   app.post("/utility/bill-push", async (req: Request, res: Response) => {
     const auth = await authenticate(req, res);
     if (!auth) return;
     try {
       const { claims } = auth;
-      const { bills, usage } = req.body as { bills?: unknown[]; usage?: unknown[] };
+      const { site_id, bills, usage } = req.body as {
+        site_id: string;
+        bills?: unknown[];
+        usage?: unknown[];
+      };
       await modules.utility.bill_push(
-        { bills: (bills ?? []) as never, usage: (usage ?? []) as never },
+        { site_id, bills: (bills ?? []) as never, usage: (usage ?? []) as never },
         { sub: claims.sub, city_tenant_id: claims.city_tenant_id },
       );
       res.status(204).end();
@@ -171,7 +175,7 @@ export function create_gateway(modules: gateway_modules): express.Express {
       const { claims } = auth;
       const { operation, params } = req.body as {
         operation: utility_resource;
-        params: { account_ref?: string };
+        params: { account_ref?: string; site_id?: string };
       };
       const result = await modules.utility.utility_read(operation, params ?? {}, {
         sub: claims.sub,

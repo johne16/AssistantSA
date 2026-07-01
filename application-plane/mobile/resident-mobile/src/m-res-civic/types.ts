@@ -150,12 +150,18 @@ export interface civic_dismiss_api_request {
   entry_id: string;
 }
 
-// Surface the portal consumes from use_civic().
+// Surface the portal consumes from useCivic().
 export interface civic_client {
-  civic_view_request(req: civic_view_request): Promise<civic_read_response>;
-  on_rep_update(listener: civic_rep_update_listener): () => void;
+  // Current city alerts. Empty until the first successful fetch.
+  alerts: alert_entry[];
   // Per-resident alert dismissal, persisted server-side. dismiss_alert hides the
   // alert for this resident; restore_alert undoes it (Feed undo toast).
   dismiss_alert(entry_id: string): Promise<void>;
   restore_alert(entry_id: string): Promise<void>;
 }
+
+// --- React Query keys ---
+
+export const civic_query_keys = {
+  alerts: ["civic", "alerts"] as const,
+};

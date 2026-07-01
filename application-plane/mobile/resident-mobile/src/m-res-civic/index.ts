@@ -1,5 +1,6 @@
 // m-res-civic barrel. The portal imports the hook and the view types from here.
-export { use_civic } from "./use_civic";
+export { useCivic } from "./useCivic";
+export { civic_query_keys } from "./types";
 export type {
   tenant_context_token,
   civic_resource,

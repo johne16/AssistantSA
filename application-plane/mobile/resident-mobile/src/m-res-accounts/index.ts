@@ -1,7 +1,9 @@
 // m-res-accounts barrel. Surface the portal mounts and calls.
 
-export { use_accounts } from "./use_accounts";
-export type { use_accounts_value, sync_listener } from "./use_accounts";
+export { useAccounts } from "./useAccounts";
+export type { use_accounts_value, sync_listener } from "./useAccounts";
+
+export { accounts_query_keys } from "./types";
 
 export { ScrapeRunner } from "./scrape-runner";
 export type { scrape_runner_handle } from "./scrape-runner";

@@ -1,7 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import * as Notifications from "expo-notifications";
-import { use_resident_session } from "@/m-res-auth";
+import { useResidentSession } from "@/m-res-auth";
 import { app_config } from "@/app-config";
+import { notifications_query_keys } from "./types";
 import type {
   local_notification,
   notification as notification_shape,
@@ -103,18 +105,42 @@ async function poll_pending(
   }
 }
 
+// Drains pending notifications and raises one local notification per item.
+// Returns the number raised. Backs the /pending poll query.
+async function drain_pending(
+  base_url: string,
+  tenant_context_token: string,
+  signal: AbortSignal,
+): Promise<number> {
+  const pending = await poll_pending(base_url, tenant_context_token, signal);
+  for (const p of pending) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: p.title,
+        body: p.body,
+        // Carry the type in data so a tap can deep-link via resolve_type.
+        data: { ...p.data, type: p.type },
+      },
+      trigger: null, // fire immediately
+    });
+  }
+  return pending.length;
+}
+
 // Permission, registration, and listener lifecycle for the resident's device.
 // Returns set_preferences for the portal's toggle screen. The portal renders;
 // this hook never draws UI.
-export function use_notifications({
+export function useNotifications({
   on_notification_event,
   on_notification_navigation,
 }: use_notifications_args): use_notifications_result {
-  const { tenant_context_token } = use_resident_session();
+  const { tenant_context_token } = useResidentSession();
   const base_url = (app_config as { api_gateway_base_url: string }).api_gateway_base_url;
-  // Module is disconnected in this build; the poll cadence is no longer injected
-  // from app_config. Local default kept so the dead code still type-checks.
+  // Poll cadence for the /pending drain (React Query refetchInterval).
   const poll_interval_ms = 15000;
+
+  // OS notification permission. Gates the pending poll.
+  const [granted, set_granted] = useState(false);
 
   // Latest known preferences, so a re-register keeps current opt-ins.
   const preferences_ref = useRef<notification_preferences>(default_preferences);
@@ -126,6 +152,32 @@ export function use_notifications({
 
   // Tracks the in-flight registration so a new one can abort the prior retry loop.
   const registration_abort_ref = useRef<AbortController | null>(null);
+
+  // Stored opt-ins. Seeds preferences_ref so a re-register keeps them.
+  const prefs_query = useQuery({
+    queryKey: notifications_query_keys.prefs,
+    queryFn: async (): Promise<notification_preferences | null> => {
+      const res = await fetch(`${base_url}/notifications/registrations/read`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenant_context_token }),
+      });
+      if (!res.ok) throw new Error(`registrations-read ${res.status}`);
+      return (await res.json()) as notification_preferences | null;
+    },
+  });
+  useEffect(() => {
+    if (prefs_query.data) preferences_ref.current = prefs_query.data;
+  }, [prefs_query.data]);
+
+  // Pending-notification poll. meta.persist:false keeps it out of the cache.
+  useQuery({
+    queryKey: notifications_query_keys.pending,
+    queryFn: ({ signal }) => drain_pending(base_url, tenant_context_token, signal),
+    enabled: granted,
+    refetchInterval: poll_interval_ms,
+    meta: { persist: false },
+  });
 
   // Fires a (re-)registration of the current opt-in preferences. Delivery routes
   // by resident (sub from the token); no device token is involved.
@@ -148,43 +200,21 @@ export function use_notifications({
 
   useEffect(() => {
     let cancelled = false;
-    const poll_abort = new AbortController();
-    let poll_timer: ReturnType<typeof setInterval> | null = null;
 
-    // Drains pending notifications and raises one local notification per item.
-    // The local notification fires the received/response listeners below, so the
-    // portal banner and deep-link flow are unchanged from the push design.
-    async function drain_once(): Promise<void> {
-      const pending = await poll_pending(base_url, tenant_context_token, poll_abort.signal);
-      if (cancelled) return;
-      for (const p of pending) {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: p.title,
-            body: p.body,
-            // Carry the type in data so a tap can deep-link via resolve_type.
-            data: { ...p.data, type: p.type },
-          },
-          trigger: null, // fire immediately
-        });
-      }
-    }
-
-    // Request OS permission, register opt-ins, then start polling. Local
-    // notifications still require notification permission.
+    // Request OS permission, register opt-ins. The /pending drain is driven by
+    // React Query, gated on the granted flag set here.
     (async () => {
       const { status } = await Notifications.getPermissionsAsync();
-      let granted = status === "granted";
-      if (!granted) {
+      let is_granted = status === "granted";
+      if (!is_granted) {
         const request = await Notifications.requestPermissionsAsync();
-        granted = request.status === "granted";
+        is_granted = request.status === "granted";
       }
       // Denied: skip registration and polling. Portal toggles stay inert.
-      if (!granted || cancelled) return;
+      if (!is_granted || cancelled) return;
 
       register();
-      void drain_once();
-      poll_timer = setInterval(() => void drain_once(), poll_interval_ms);
+      set_granted(true);
     })();
 
     // Foreground notification: route to the portal banner.
@@ -206,8 +236,6 @@ export function use_notifications({
 
     return () => {
       cancelled = true;
-      poll_abort.abort();
-      if (poll_timer) clearInterval(poll_timer);
       registration_abort_ref.current?.abort();
       received_sub.remove();
       response_sub.remove();
@@ -216,10 +244,8 @@ export function use_notifications({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Raise a local notification for a client-origin event (e.g. a failed account
-  // sync), routed through the same OS notification path as polled items so the
-  // banner and tap-to-deep-link flow are identical.
-  function raise_local(item: local_notification): void {
+  // Raise a local notification for a client-origin event (e.g. a failed sync).
+  const raise_local = useCallback((item: local_notification): void => {
     void Notifications.scheduleNotificationAsync({
       content: {
         title: item.title,
@@ -229,31 +255,20 @@ export function use_notifications({
       },
       trigger: null, // fire immediately
     });
-  }
+  }, []);
 
   // Portal toggle handler: persist the new opt-ins to the backend immediately.
-  function set_preferences(prefs: notification_preferences): void {
+  const set_preferences = useCallback((prefs: notification_preferences): void => {
     preferences_ref.current = prefs;
     register();
-  }
+    // register reads only refs and the stable base_url/token.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Loads the resident's stored opt-ins from the backend. Null if never saved.
-  // Seeds preferences_ref so a later re-register keeps the stored opt-ins.
-  async function get_preferences(): Promise<notification_preferences | null> {
-    try {
-      const res = await fetch(`${base_url}/notifications/registrations/read`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenant_context_token }),
-      });
-      if (!res.ok) return null;
-      const prefs = (await res.json()) as notification_preferences | null;
-      if (prefs) preferences_ref.current = prefs;
-      return prefs;
-    } catch {
-      return null;
-    }
-  }
+  const preferences = prefs_query.data ?? null;
 
-  return { set_preferences, get_preferences, raise_local };
+  return useMemo<use_notifications_result>(
+    () => ({ set_preferences, preferences, raise_local }),
+    [set_preferences, preferences, raise_local],
+  );
 }

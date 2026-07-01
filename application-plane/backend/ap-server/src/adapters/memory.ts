@@ -131,22 +131,28 @@ export function create_memory_civic_store(): civic_store {
 }
 
 export function create_memory_utility_store(): utility_store {
-  const bills = new Map<string, bill_view[]>(); // key city|sub
-  const usage = new Map<string, usage_view[]>();
+  const bills = new Map<string, bill_view[]>(); // key city|sub|site_id
+  const usage = new Map<string, usage_view[]>(); // key city|sub|site_id
   const outages = new Map<string, outage_view[]>();
   const profiles = new Map<string, resident_profile>(); // key city|sub
   const linked_accounts = new Map<string, linked_account[]>(); // key city|sub
   const tenants = new Set<string>();
   const k = (city: string, sub: string) => `${city}|${sub}`;
+  const ks = (city: string, sub: string, site_id: string) => `${city}|${sub}|${site_id}`;
 
   return {
-    async read_bills(city, sub, account_ref) {
+    async read_bills(city, sub, site_id) {
       tenants.add(city);
-      const list = bills.get(k(city, sub)) ?? [];
-      return account_ref ? list.filter((b) => b.account_ref === account_ref) : list;
+      if (site_id) return bills.get(ks(city, sub, site_id)) ?? [];
+      const prefix = `${city}|${sub}|`;
+      const out: bill_view[] = [];
+      for (const [key, list] of bills) if (key.startsWith(prefix)) out.push(...list);
+      return out;
     },
     async read_usage(city, sub, account_ref) {
-      const list = usage.get(k(city, sub)) ?? [];
+      const prefix = `${city}|${sub}|`;
+      const list: usage_view[] = [];
+      for (const [key, l] of usage) if (key.startsWith(prefix)) list.push(...l);
       return account_ref ? list.filter((u) => u.account_ref === account_ref) : list;
     },
     async read_outages(city, sub) {
@@ -154,8 +160,8 @@ export function create_memory_utility_store(): utility_store {
     },
     async store_bill_push(city, sub, push) {
       tenants.add(city);
-      bills.set(k(city, sub), push.bills);
-      usage.set(k(city, sub), push.usage);
+      bills.set(ks(city, sub, push.site_id), push.bills);
+      usage.set(ks(city, sub, push.site_id), push.usage);
     },
     async store_outages(city, sub, list) {
       const existing = outages.get(k(city, sub)) ?? [];

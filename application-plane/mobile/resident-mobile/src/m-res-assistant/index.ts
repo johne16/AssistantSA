@@ -3,7 +3,7 @@
 // module's owned types.
 
 export { AssistantScreen } from "./AssistantScreen";
-export { use_assistant_engine } from "./use_assistant_engine";
+export { useAssistantEngine } from "./useAssistantEngine";
 export { IdleOverlay } from "./IdleOverlay";
 
 export type {

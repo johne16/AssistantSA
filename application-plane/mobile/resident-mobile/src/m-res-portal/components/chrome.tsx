@@ -12,12 +12,12 @@ import {
   type LayoutChangeEvent,
 } from "react-native";
 import { Canvas, Group, Path, Skia } from "@shopify/react-native-skia";
-import { use_theme, use_t } from "@/m-res-shell";
+import { useTheme, useT } from "@/m-res-shell";
 import type { tab_def, tab_id } from "../types";
 
 // Scroll column inside a panel, mirroring the mockup's .view.
 export function Screen(props: { children: React.ReactNode }) {
-  const t = use_theme();
+  const t = useTheme();
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: t.color.paper }}
@@ -101,8 +101,8 @@ export function WakeBar(props: {
   triggered?: boolean;
   onToggle: () => void;
 }) {
-  const t = use_theme();
-  const tr = use_t();
+  const t = useTheme();
+  const tr = useT();
   const c = t.color;
   // Muted: subtle. Triggered (wake fired): green. Listening: the amber signal.
   const dot_color = props.muted
@@ -167,8 +167,8 @@ export function TabBar(props: {
   // Count shown on the Feed tab badge (triggered items). 0 hides it.
   feed_badge?: number;
 }) {
-  const t = use_theme();
-  const tr = use_t();
+  const t = useTheme();
+  const tr = useT();
   const c = t.color;
   return (
     <View

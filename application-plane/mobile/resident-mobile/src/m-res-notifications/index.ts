@@ -12,4 +12,5 @@ export type {
   use_notifications_args,
   use_notifications_result,
 } from "./types";
-export { use_notifications } from "./use_notifications";
+export { useNotifications } from "./useNotifications";
+export { notifications_query_keys } from "./types";

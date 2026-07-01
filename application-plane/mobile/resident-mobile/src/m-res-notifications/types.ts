@@ -91,8 +91,8 @@ export interface local_notification {
 // Return surface of the hook for the portal's toggle screen.
 export interface use_notifications_result {
   set_preferences: (prefs: notification_preferences) => void;
-  // Load the resident's stored opt-ins from the backend. Null if never saved.
-  get_preferences: () => Promise<notification_preferences | null>;
+  // The resident's stored opt-ins. Null until first loaded/saved.
+  preferences: notification_preferences | null;
   // Raise a local notification for a client-origin event (e.g. a failed sync).
   raise_local: (item: local_notification) => void;
 }
@@ -102,3 +102,11 @@ export interface notifications_config {
   api_gateway_base_url: string;
   notification_poll_interval_ms: number;
 }
+
+// --- React Query keys ---
+
+// pending is excluded from persistence via meta.persist:false on its query.
+export const notifications_query_keys = {
+  prefs: ["notifications", "prefs"] as const,
+  pending: ["notifications", "pending"] as const,
+};

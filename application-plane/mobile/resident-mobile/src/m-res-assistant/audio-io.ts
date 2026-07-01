@@ -74,7 +74,7 @@ function bytes_to_base64(bytes: Uint8Array): string {
   return out;
 }
 
-export function use_audio_io(): audio_io {
+export function useAudioIo(): audio_io {
   // The native engine is a process-wide singleton; initialize() must resolve
   // once before any capture/playback call, and is re-run after a tearDown.
   const init = useRef<Promise<void> | null>(null);
@@ -130,7 +130,7 @@ export function use_audio_io(): audio_io {
 
   // Build the audio_io object once and keep its identity stable across renders.
   // All state lives in the refs above, so a single instance stays correct. A
-  // stable identity matters because consumers (use_wake_word, the idle overlay)
+  // stable identity matters because consumers (useWakeWord, the idle overlay)
   // key effects on it; a fresh object each render would restart mic capture and
   // re-subscribe the output level on every parent re-render.
   const api = useRef<audio_io | null>(null);

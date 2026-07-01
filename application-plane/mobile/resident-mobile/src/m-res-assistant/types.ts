@@ -172,7 +172,7 @@ export interface audio_io {
   on_output_level(handler: (level: number) => void): () => void;
 }
 
-// Return shape of use_assistant_engine: the assistant's audio engine, chat
+// Return shape of useAssistantEngine: the assistant's audio engine, chat
 // thread, and voice controls, owned at portal level and consumed by
 // AssistantScreen (rendering) and the idle overlay (audio output level).
 export interface assistant_engine {

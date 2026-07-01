@@ -17,9 +17,8 @@ export type utility_resource = "bills" | "usage" | "outage";
 
 // Stored bill record served in bills views.
 export interface bill_view {
-  account_ref: string;
   due_date: string; // ISO date
-  statement_id: string;
+  total: number; // amount due
 }
 
 // Stored usage record served in usage views.
@@ -114,9 +113,10 @@ export interface site_script_request {
   site_id: string;
 }
 
-// billPush request: scraped bills + usage pushed to ap-utility.
+// billPush request: scraped bills + usage for one linked site pushed to ap-utility.
 export interface bill_push_request {
   tenant_context_token: string;
+  site_id: string;
   bills: bill_view[];
   usage: usage_view[];
 }
@@ -173,3 +173,10 @@ export interface scrape_job {
   script: string;
   credentials: stored_credentials;
 }
+
+// --- React Query keys ---
+
+export const accounts_query_keys = {
+  profile: ["accounts", "profile"] as const,
+  linked: ["accounts", "linked"] as const,
+};

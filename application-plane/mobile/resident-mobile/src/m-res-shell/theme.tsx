@@ -11,8 +11,8 @@ import type { theme, theme_mode } from "./types";
 
 // Theme context. The provider resolves the mode from a manual override when set
 // (the Settings dark-theme switch), otherwise from the OS color scheme. Consumers
-// read the resolved tokens with use_theme and drive the override with
-// use_theme_mode.
+// read the resolved tokens with useTheme and drive the override with
+// useThemeMode.
 
 const theme_context = createContext<theme | null>(null);
 
@@ -52,19 +52,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function use_theme(): theme {
+export function useTheme(): theme {
   const value = useContext(theme_context);
   if (!value) {
-    throw new Error("use_theme must be used within ThemeProvider");
+    throw new Error("useTheme must be used within ThemeProvider");
   }
   return value;
 }
 
 // Read the resolved mode and pin or release the override (Settings appearance).
-export function use_theme_mode(): theme_mode_value {
+export function useThemeMode(): theme_mode_value {
   const value = useContext(theme_mode_context);
   if (!value) {
-    throw new Error("use_theme_mode must be used within ThemeProvider");
+    throw new Error("useThemeMode must be used within ThemeProvider");
   }
   return value;
 }

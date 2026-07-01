@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
-import { use_theme, use_t } from "@/m-res-shell";
+import { useTheme, useT } from "@/m-res-shell";
 import type { assistant_engine } from "./types";
 import type { theme as shell_theme } from "@/m-res-shell";
 
@@ -25,8 +25,8 @@ export function AssistantScreen(props: {
   keyboard_offset: number;
 }) {
   "use no memo";
-  const t = use_theme();
-  const tr = use_t();
+  const t = useTheme();
+  const tr = useT();
   const styles = build_styles(t);
   const {
     turns,

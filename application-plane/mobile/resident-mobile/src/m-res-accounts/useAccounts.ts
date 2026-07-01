@@ -5,12 +5,14 @@
 // from the keystore at scrape time and handed to the scrape-runner; they never
 // reach the gateway.
 
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { app_config } from "@/app-config";
-import { use_resident_session } from "@/m-res-auth";
+import { useResidentSession } from "@/m-res-auth";
 
 import { delete_credentials, read_credentials } from "./keystore";
+import { accounts_query_keys } from "./types";
 import type { scrape_runner_handle } from "./scrape-runner";
 import type {
   account_link_request,
@@ -33,6 +35,10 @@ import type {
 // Per-account sync progress callback the portal subscribes to.
 export type sync_listener = (result: sync_result) => void;
 
+// Stable empty fallback so an unresolved query keeps a constant reference (a new
+// [] each render would make the linked mirror effect loop).
+const EMPTY_LINKED: linked_account[] = [];
+
 export interface use_accounts_value {
   // Read stored utility data for a portal screen.
   utility_view_request(req: utility_view_request): Promise<utility_data>;
@@ -45,26 +51,27 @@ export interface use_accounts_value {
   register_linked_account(account: linked_account): Promise<void>;
   // Remove a linked account: backend record + device credentials.
   unlink_account(site_id: string): Promise<void>;
-  // Load the resident's linked accounts from the backend.
-  list_accounts(): Promise<linked_account[]>;
+  // The resident's linked accounts.
+  linked: linked_account[];
   // Persist the resident profile to the backend.
   save_profile(profile: resident_profile): Promise<void>;
-  // Load the resident profile from the backend. Null if never saved.
-  load_profile(): Promise<resident_profile | null>;
+  // The resident profile. Null until first loaded/saved.
+  profile: resident_profile | null;
   // Subscribe to per-account sync_result transitions. Returns an unsubscribe.
   on_sync_result(listener: sync_listener): () => void;
 }
 
-export function use_accounts(
+export function useAccounts(
   runner: React.RefObject<scrape_runner_handle | null>,
 ): use_accounts_value {
-  const { tenant_context_token } = use_resident_session();
+  const { tenant_context_token } = useResidentSession();
 
   const base = app_config.api_gateway_base_url;
   const max_concurrent =
     app_config.max_concurrent_syncs > 0 ? app_config.max_concurrent_syncs : 3;
 
   const listeners = useRef<Set<sync_listener>>(new Set());
+  const client = useQueryClient();
 
   const emit = useCallback((result: sync_result) => {
     for (const l of listeners.current) l(result);
@@ -95,10 +102,10 @@ export function use_accounts(
     [base, tenant_context_token],
   );
 
-  // Push scraped bills + usage. billPush: { tenant_context_token, bills, usage }.
+  // Push scraped bills + usage for one site. billPush: { tenant_context_token, site_id, bills, usage }.
   const push_bills = useCallback(
-    async (bills: bill_view[], usage: usage_view[]): Promise<void> => {
-      const body: bill_push_request = { tenant_context_token, bills, usage };
+    async (site_id: string, bills: bill_view[], usage: usage_view[]): Promise<void> => {
+      const body: bill_push_request = { tenant_context_token, site_id, bills, usage };
       const res = await fetch(`${base}/utility/bill-push`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -137,10 +144,40 @@ export function use_accounts(
     use_accounts_value["utility_view_request"]
   >((req) => read_utility(req), [read_utility]);
 
-  const register_linked_account = useCallback<
-    use_accounts_value["register_linked_account"]
-  >(
-    async (account) => {
+  // --- gateway reads via React Query (persisted, offline-first) ---
+
+  // The resident's linked accounts.
+  const linked_query = useQuery({
+    queryKey: accounts_query_keys.linked,
+    queryFn: async (): Promise<linked_account[]> => {
+      const res = await fetch(`${base}/utility/accounts/read`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tenant_context_token }),
+      });
+      if (!res.ok) throw new Error(`accounts-read ${res.status}`);
+      return (await res.json()) as linked_account[];
+    },
+  });
+
+  // The resident profile. Null until first saved.
+  const profile_query = useQuery({
+    queryKey: accounts_query_keys.profile,
+    queryFn: async (): Promise<resident_profile | null> => {
+      const res = await fetch(`${base}/utility/profile/read`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tenant_context_token }),
+      });
+      if (!res.ok) throw new Error(`profile-read ${res.status}`);
+      return (await res.json()) as resident_profile | null;
+    },
+  });
+
+  // --- gateway writes via React Query mutations ---
+
+  const register_mutation = useMutation({
+    mutationFn: async (account: linked_account): Promise<void> => {
       const body: account_link_request = { tenant_context_token, account };
       const res = await fetch(`${base}/utility/accounts`, {
         method: "POST",
@@ -149,11 +186,12 @@ export function use_accounts(
       });
       if (!res.ok) throw new Error(`accounts-link ${res.status}`);
     },
-    [base, tenant_context_token],
-  );
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: accounts_query_keys.linked }),
+  });
 
-  const unlink_account = useCallback<use_accounts_value["unlink_account"]>(
-    async (site_id) => {
+  const unlink_mutation = useMutation({
+    mutationFn: async (site_id: string): Promise<void> => {
       const body: account_unlink_request = { tenant_context_token, site_id };
       const res = await fetch(`${base}/utility/accounts/unlink`, {
         method: "POST",
@@ -163,24 +201,12 @@ export function use_accounts(
       if (!res.ok) throw new Error(`accounts-unlink ${res.status}`);
       await delete_credentials(site_id);
     },
-    [base, tenant_context_token],
-  );
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: accounts_query_keys.linked }),
+  });
 
-  const list_accounts = useCallback<use_accounts_value["list_accounts"]>(
-    async () => {
-      const res = await fetch(`${base}/utility/accounts/read`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tenant_context_token }),
-      });
-      if (!res.ok) throw new Error(`accounts-read ${res.status}`);
-      return (await res.json()) as linked_account[];
-    },
-    [base, tenant_context_token],
-  );
-
-  const save_profile = useCallback<use_accounts_value["save_profile"]>(
-    async (profile) => {
+  const save_profile_mutation = useMutation({
+    mutationFn: async (profile: resident_profile): Promise<void> => {
       const body: profile_save_request = { tenant_context_token, profile };
       const res = await fetch(`${base}/utility/profile`, {
         method: "POST",
@@ -189,20 +215,28 @@ export function use_accounts(
       });
       if (!res.ok) throw new Error(`profile-save ${res.status}`);
     },
-    [base, tenant_context_token],
+    onSuccess: (_data, profile) =>
+      client.setQueryData(accounts_query_keys.profile, profile),
+  });
+
+  // Depend on the stable mutateAsync, not the mutation object (new each render),
+  // so these callbacks stay stable.
+  const register_async = register_mutation.mutateAsync;
+  const unlink_async = unlink_mutation.mutateAsync;
+  const save_profile_async = save_profile_mutation.mutateAsync;
+
+  const register_linked_account = useCallback<
+    use_accounts_value["register_linked_account"]
+  >((account) => register_async(account).then(() => undefined), [register_async]);
+
+  const unlink_account = useCallback<use_accounts_value["unlink_account"]>(
+    (site_id) => unlink_async(site_id).then(() => undefined),
+    [unlink_async],
   );
 
-  const load_profile = useCallback<use_accounts_value["load_profile"]>(
-    async () => {
-      const res = await fetch(`${base}/utility/profile/read`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tenant_context_token }),
-      });
-      if (!res.ok) throw new Error(`profile-read ${res.status}`);
-      return (await res.json()) as resident_profile | null;
-    },
-    [base, tenant_context_token],
+  const save_profile = useCallback<use_accounts_value["save_profile"]>(
+    (profile) => save_profile_async(profile).then(() => undefined),
+    [save_profile_async],
   );
 
   // Run a single site through the off-screen WebView. Reads creds at scrape
@@ -225,7 +259,7 @@ export function use_accounts(
         const scraped = await runner.current.run(job);
         const bills = scraped.bills as unknown as bill_view[];
         const usage = scraped.usage as unknown as usage_view[];
-        await push_bills(bills, usage);
+        await push_bills(site_id, bills, usage);
 
         const result: sync_result = {
           site_id,
@@ -278,15 +312,31 @@ export function use_accounts(
   // Startup and resume scrapes are driven by the portal, which owns the linked
   // site_ids and calls sync_all on app open.
 
-  return {
-    utility_view_request,
-    sync,
-    sync_all,
-    register_linked_account,
-    unlink_account,
-    list_accounts,
-    save_profile,
-    load_profile,
-    on_sync_result,
-  };
+  const linked = linked_query.data ?? EMPTY_LINKED;
+  const profile = profile_query.data ?? null;
+
+  return useMemo<use_accounts_value>(
+    () => ({
+      utility_view_request,
+      sync,
+      sync_all,
+      register_linked_account,
+      unlink_account,
+      linked,
+      save_profile,
+      profile,
+      on_sync_result,
+    }),
+    [
+      utility_view_request,
+      sync,
+      sync_all,
+      register_linked_account,
+      unlink_account,
+      linked,
+      save_profile,
+      profile,
+      on_sync_result,
+    ],
+  );
 }

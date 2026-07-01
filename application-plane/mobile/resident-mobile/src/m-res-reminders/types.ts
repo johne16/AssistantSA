@@ -26,7 +26,7 @@ export interface new_reminder {
   when_display: string;
 }
 
-// Surface the portal consumes from use_reminders().
+// Surface the portal consumes from useReminders().
 export interface reminders_client {
   // All reminders, newest scheduled first. Re-renders when the list changes.
   reminders: reminder_entry[];
@@ -45,3 +45,10 @@ export interface reminders_client {
   // uses it to raise a local notification.
   on_fire(listener: (entry: reminder_entry) => void): () => void;
 }
+
+// --- React Query keys ---
+
+// Namespaced query key for the reminder list read from the gateway.
+export const reminders_query_keys = {
+  list: ["reminders", "list"] as const,
+};

@@ -11,7 +11,7 @@
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { use_theme, use_t } from "@/m-res-shell";
+import { useTheme, useT } from "@/m-res-shell";
 import type { alert_entry } from "@/m-res-civic";
 import type { reminders_client } from "@/m-res-reminders";
 import { Screen } from "../components/chrome";
@@ -49,8 +49,8 @@ export function FeedScreen(props: {
   reminders: reminders_client;
 }) {
   "use no memo";
-  const t = use_theme();
-  const tr = use_t();
+  const t = useTheme();
+  const tr = useT();
   const c = t.color;
 
   const [view, set_view] = useState<feed_lane>("triggered");
@@ -358,8 +358,8 @@ function FeedRow(props: {
   item: feed_item;
   onDismiss: (item: feed_item) => void;
 }) {
-  const t = use_theme();
-  const tr = use_t();
+  const t = useTheme();
+  const tr = useT();
   const c = t.color;
   const { item } = props;
 

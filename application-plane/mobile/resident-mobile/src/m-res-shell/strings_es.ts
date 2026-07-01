@@ -1,6 +1,6 @@
 // English -> Spanish for every translatable UI string in the resident app.
 // English is the source; keys are the exact literals passed to the translate
-// helper (use_t). Strings with no entry fall back to English. Proper nouns
+// helper (useT). Strings with no entry fall back to English. Proper nouns
 // (San Antonio, provider names, street names, person names, emails) are not
 // translated and so are absent here.
 
@@ -260,6 +260,9 @@ export const strings_es: Record<string, string> = {
   "Bex's voice": "La voz de Bex",
   "Push notifications": "Notificaciones push",
   "Reminders and civic alerts when the app is closed.": "Recordatorios y alertas cívicas cuando la app está cerrada.",
+  "Offline — showing saved data": "Sin conexión — mostrando datos guardados",
+  "Something went wrong": "Algo salió mal",
+  "Try again": "Reintentar",
   "Appearance": "Apariencia",
   "Dark theme": "Tema oscuro",
   "Use a darker color scheme.": "Usa un esquema de color más oscuro.",

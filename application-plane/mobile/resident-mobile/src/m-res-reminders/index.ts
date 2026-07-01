@@ -1,6 +1,7 @@
 // m-res-reminders barrel. Surface the portal mounts and the Feed consumes.
 
-export { use_reminders } from "./use_reminders";
+export { useReminders } from "./useReminders";
+export { reminders_query_keys } from "./types";
 export type {
   reminder_status,
   reminder_entry,

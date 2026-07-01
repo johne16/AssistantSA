@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { use_resident_session } from "@/m-res-auth";
-import { use_t } from "@/m-res-shell";
+import { useResidentSession } from "@/m-res-auth";
+import { useT } from "@/m-res-shell";
 import { send_assistant_query } from "./chat-client";
 import { open_voice_stream } from "./voice-client";
-import { use_audio_io } from "./audio-io";
-import { use_wake_word } from "./wake-word";
+import { useAudioIo } from "./audio-io";
+import { useWakeWord } from "./wake-word";
 import type {
   assistant_engine,
   assistant_reminder_payload,
@@ -49,7 +49,7 @@ function next_turn_id(): string {
   return `t${turn_counter}`;
 }
 
-export function use_assistant_engine(props: {
+export function useAssistantEngine(props: {
   voice_id: string;
   // Portal-level "Hey Bex" toggle. Gates the wake listener; the engine runs the
   // listener whenever this is on and no voice session holds the mic.
@@ -62,9 +62,9 @@ export function use_assistant_engine(props: {
   on_relink_account?: () => void;
 }): assistant_engine {
   "use no memo";
-  const tr = use_t();
-  const { tenant_context_token } = use_resident_session();
-  const audio = use_audio_io();
+  const tr = useT();
+  const { tenant_context_token } = useResidentSession();
+  const audio = useAudioIo();
 
   const [turns, set_turns] = useState<chat_turn[]>([]);
   const [draft, set_draft] = useState("");
@@ -434,7 +434,7 @@ export function use_assistant_engine(props: {
   // active: it does not hold the mic (capture is continuous above), it only
   // consumes frames, so disabling it during a session just stops detection.
   const wake_active = props.wake_enabled && voice_state === "idle";
-  use_wake_word({ audio, enabled: wake_active, on_detected: handle_wake_detected });
+  useWakeWord({ audio, enabled: wake_active, on_detected: handle_wake_detected });
 
   return {
     audio,

@@ -5,7 +5,7 @@
 
 import React, { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { use_theme, use_t } from "@/m-res-shell";
+import { useTheme, useT } from "@/m-res-shell";
 import { LinkAccountFields } from "@/m-res-accounts";
 import { Screen } from "../components/chrome";
 import { BackLink, Field, Note, SectionHeader } from "../components/ui";
@@ -21,8 +21,8 @@ export function AccountsScreen(props: {
   on_unlink: (site_id: string) => Promise<boolean>;
   select: (id: panel_id) => void;
 }) {
-  const t = use_theme();
-  const tr = use_t();
+  const t = useTheme();
+  const tr = useT();
   const c = t.color;
   const [unlink_error, set_unlink_error] = useState<string | null>(null);
 
@@ -184,8 +184,8 @@ export function AddAccountScreen(props: {
   on_linked: (account: linked_account) => Promise<boolean>;
   onBack: () => void;
 }) {
-  const t = use_theme();
-  const tr = use_t();
+  const t = useTheme();
+  const tr = useT();
   const c = t.color;
   const [provider, set_provider] = useState("");
   const [sign_in_url, set_sign_in_url] = useState("");

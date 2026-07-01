@@ -6,14 +6,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { app_config } from "@/app-config";
-import { use_theme, use_theme_mode, use_lang, use_t } from "@/m-res-shell";
+import { useTheme, useThemeMode, useLang, useT } from "@/m-res-shell";
 import { Screen } from "../components/chrome";
 import { Chip, Field, PrimaryButton, SwitchRow } from "../components/ui";
 import type { notification_preferences, resident_profile } from "../types";
 
 // Mono uppercase block label between settings groups (mockup .block-label).
 function BlockLabel(props: { children: string }) {
-  const t = use_theme();
+  const t = useTheme();
   return (
     <Text
       style={{
@@ -35,8 +35,8 @@ function BlockLabel(props: { children: string }) {
 type save_status = "idle" | "saving" | "saved" | "error";
 
 function SaveButton(props: { label: string; on_save: () => Promise<boolean> }) {
-  const t = use_theme();
-  const tr = use_t();
+  const t = useTheme();
+  const tr = useT();
   const [status, set_status] = useState<save_status>("idle");
   const reset_timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -96,16 +96,19 @@ export function SettingsScreen(props: {
   wake_enabled: boolean;
   on_wake_toggle: () => void;
 }) {
-  const t = use_theme();
-  const tr = use_t();
+  const t = useTheme();
+  const tr = useT();
   const c = t.color;
-  const app_lang = use_lang();
+  const app_lang = useLang();
   const lang = app_lang.lang;
-  const theme_mode = use_theme_mode();
+  const theme_mode = useThemeMode();
 
   const { profile, on_change_profile, prefs } = props;
   const voices = app_config.voice_ids[lang === "es" ? "es" : "en"];
-  const voice_pool = [...voices.male, ...voices.female];
+  const voice_pool = [
+    ...voices.male.map((id) => ({ id, gender: "male" as const })),
+    ...voices.female.map((id) => ({ id, gender: "female" as const })),
+  ];
 
   function set_field(key: keyof resident_profile, value: string) {
     on_change_profile({ ...profile, [key]: value });
@@ -118,7 +121,7 @@ export function SettingsScreen(props: {
     // position in the pool so the same "Voice N" stays selected after switching.
     const next_voices = app_config.voice_ids[next];
     const next_pool = [...next_voices.male, ...next_voices.female];
-    const idx = voice_pool.indexOf(props.voice_id);
+    const idx = voice_pool.findIndex((v) => v.id === props.voice_id);
     if (idx >= 0 && next_pool[idx]) props.on_voice_id_change(next_pool[idx]);
     app_lang.set_lang(next);
     void props.on_save_profile({ ...profile, lang: next });
@@ -216,14 +219,18 @@ export function SettingsScreen(props: {
       {/* Bex's voice */}
       <BlockLabel>{tr("Bex's voice")}</BlockLabel>
       <View style={[group, { paddingVertical: t.spacing.md }]}>
-        <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-          {voice_pool.map((id, i) => (
-            <Chip
-              key={id}
-              label={`${tr("Voice")} ${i + 1}`}
-              selected={props.voice_id === id}
-              onPress={() => props.on_voice_id_change(id)}
-            />
+        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+          {voice_pool.map((v, i) => (
+            <View key={v.id} style={{ width: "48%" }}>
+              <Chip
+                fill
+                label={`${v.gender === "male" ? tr("Male") : tr("Female")} ${
+                  (i % 2) + 1
+                }`}
+                selected={props.voice_id === v.id}
+                onPress={() => props.on_voice_id_change(v.id)}
+              />
+            </View>
           ))}
         </View>
       </View>

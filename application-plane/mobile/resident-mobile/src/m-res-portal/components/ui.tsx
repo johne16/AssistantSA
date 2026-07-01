@@ -12,7 +12,7 @@ import {
   View,
   type TextInputProps,
 } from "react-native";
-import { use_theme } from "@/m-res-shell";
+import { useTheme } from "@/m-res-shell";
 
 // --- Section header: display title + muted description, optional eyebrow ---
 
@@ -21,7 +21,7 @@ export function SectionHeader(props: {
   detail?: string;
   eyebrow?: string;
 }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   return (
     <View style={{ marginBottom: t.spacing.md }}>
@@ -68,7 +68,7 @@ export function SectionHeader(props: {
 // --- Back link ---
 
 export function BackLink(props: { label: string; onPress: () => void }) {
-  const t = use_theme();
+  const t = useTheme();
   return (
     <Pressable
       onPress={props.onPress}
@@ -96,7 +96,7 @@ export function Card(props: {
   title?: string;
   hint?: string;
 }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   return (
     <View
@@ -155,7 +155,7 @@ export function Card(props: {
 // --- Key/value pair grid inside a card ---
 
 export function KeyValue(props: { pairs: { k: string; v: string }[] }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   return (
     <View
@@ -200,7 +200,7 @@ export function Row(props: {
   tag?: string;
   staticRow?: boolean;
 }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   const inner = (
     <>
@@ -283,7 +283,7 @@ export function Row(props: {
 // --- Blocked-feature notice (dashed border, accent pill) ---
 
 export function BlockedNotice(props: { title: string; body: string }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   return (
     <View
@@ -349,7 +349,7 @@ export function SyncBar(props: {
   meta: string;
   onPress: () => void;
 }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   return (
     <Pressable
@@ -419,7 +419,7 @@ export function Switch(props: {
   onToggle: () => void;
   disabled?: boolean;
 }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   return (
     <Pressable
@@ -457,7 +457,7 @@ export function SwitchRow(props: {
   disabled?: boolean;
   first?: boolean;
 }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   return (
     <View
@@ -510,8 +510,11 @@ export function Chip(props: {
   label: string;
   selected: boolean;
   onPress: () => void;
+  // Stretch to the parent-allotted width and center the label. Used for grid
+  // layouts (e.g. the settings voice 2x2) instead of content-sized pills.
+  fill?: boolean;
 }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   return (
     <Pressable
@@ -523,8 +526,10 @@ export function Chip(props: {
         borderRadius: t.radius.pill,
         paddingVertical: 8,
         paddingHorizontal: t.spacing.md,
-        marginRight: t.spacing.sm,
+        marginRight: props.fill ? 0 : t.spacing.sm,
         marginBottom: t.spacing.sm,
+        alignSelf: props.fill ? "stretch" : "auto",
+        alignItems: props.fill ? "center" : "flex-start",
       }}
     >
       <Text
@@ -547,7 +552,7 @@ export function PrimaryButton(props: {
   onPress: () => void;
   disabled?: boolean;
 }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   return (
     <Pressable
@@ -577,7 +582,7 @@ export function PrimaryButton(props: {
 }
 
 export function OutlineButton(props: { title: string; onPress: () => void }) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   return (
     <Pressable
@@ -610,7 +615,7 @@ export function OutlineButton(props: { title: string; onPress: () => void }) {
 export function Field(
   props: { label: string } & TextInputProps,
 ) {
-  const t = use_theme();
+  const t = useTheme();
   const c = t.color;
   const { label, style, ...rest } = props;
   return (
@@ -650,7 +655,7 @@ export function Field(
 // --- Small muted note text ---
 
 export function Note(props: { children: React.ReactNode }) {
-  const t = use_theme();
+  const t = useTheme();
   return (
     <Text
       style={{

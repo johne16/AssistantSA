@@ -10,20 +10,20 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 
 import { app_config } from "@/app-config";
-import { use_theme, use_lang } from "@/m-res-shell";
-import { use_civic, type alert_entry } from "@/m-res-civic";
+import { useTheme, useLang, OfflineBanner } from "@/m-res-shell";
+import { useCivic, type alert_entry } from "@/m-res-civic";
 import {
   ScrapeRunner,
-  use_accounts,
+  useAccounts,
   type scrape_runner_handle,
   type sync_result,
 } from "@/m-res-accounts";
-import { use_reminders } from "@/m-res-reminders";
+import { useReminders } from "@/m-res-reminders";
 import {
-  use_notifications,
+  useNotifications,
   type notification_preferences as push_preferences,
 } from "@/m-res-notifications";
-import { AssistantScreen, IdleOverlay, use_assistant_engine } from "@/m-res-assistant";
+import { AssistantScreen, IdleOverlay, useAssistantEngine } from "@/m-res-assistant";
 
 import { TabBar, WakeBar } from "./components/chrome";
 import { FeedScreen, alert_feed_id, alert_entry_id_of } from "./screens/feed";
@@ -56,6 +56,10 @@ const EMPTY_PROFILE: resident_profile = {
   lang: "en",
 };
 
+// Stable empty alerts reference for the city-alerts-off branch, so the mirror
+// effect never sets a fresh array.
+const EMPTY_ALERTS: alert_entry[] = [];
+
 const DEFAULT_PREFS: notification_preferences = {
   push_enabled: true,
   utility_alert_enabled: true,
@@ -85,17 +89,17 @@ function to_push_prefs(p: notification_preferences): push_preferences {
 }
 
 export function Portal() {
-  const t = use_theme();
+  const t = useTheme();
 
   // --- client module hooks ---
-  const civic = use_civic();
+  const civic = useCivic();
   const runner = useRef<scrape_runner_handle | null>(null);
-  const accounts = use_accounts(runner);
-  const reminders = use_reminders();
+  const accounts = useAccounts(runner);
+  const reminders = useReminders();
   // Push notifications: a tap on any type opens the Feed (the single surface that
   // replaced the per-topic screens); a notification arriving in the foreground is
   // silent (its data already shows in the Feed).
-  const notifications = use_notifications({
+  const notifications = useNotifications({
     on_notification_event: () => {},
     // A sync-failure tap opens Accounts (to re-link); every other type opens Feed.
     on_notification_navigation: (nav) =>
@@ -113,7 +117,7 @@ export function Portal() {
   const [profile, set_profile] = useState<resident_profile>(EMPTY_PROFILE);
 
   // Keep the app language in sync with the saved profile.
-  const { set_lang } = use_lang();
+  const { set_lang } = useLang();
   useEffect(() => {
     set_lang(profile.lang === "es" ? "es" : "en");
   }, [profile.lang, set_lang]);
@@ -170,9 +174,20 @@ export function Portal() {
     return off;
   }, [accounts, notifications, prefs.push_enabled, linked]);
 
-  // Re-scrape linked accounts when the app returns to the foreground (a warm
-  // "open"), in addition to the cold-start sync below. Skipped if a sync is
-  // already in flight so resumes don't stack scrapes.
+  // Scrape linked accounts when the set changes (cold-start load, or self-heal
+  // when the query refetches after the gateway returns). Keyed on the site_id set.
+  const linked_key = linked
+    .map((a) => a.site_id)
+    .sort()
+    .join(",");
+  useEffect(() => {
+    if (linked_key.length === 0 || in_flight.current.size > 0) return;
+    void accounts.sync_all(linked_key.split(","));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linked_key]);
+
+  // Re-scrape on warm foreground so utility data refreshes without a cold start.
+  // Skipped if a sync is already in flight.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active" || linked.length === 0 || in_flight.current.size > 0) {
@@ -204,7 +219,7 @@ export function Portal() {
   // mic engine run on every screen (the wake toggle is portal-level), not only
   // while the Chat tab is mounted. AssistantScreen renders its chat state; the
   // idle overlay reads its audio output level.
-  const engine = use_assistant_engine({
+  const engine = useAssistantEngine({
     voice_id,
     wake_enabled,
     on_set_reminder,
@@ -253,24 +268,10 @@ export function Portal() {
   const [dismissed_alerts, set_dismissed_alerts] = useState<Set<string>>(
     new Set(),
   );
+  // Mirror civic alerts into local state, gated by the city-alerts opt-in.
   useEffect(() => {
-    if (!prefs.city_alert_enabled) {
-      set_alerts([]);
-      return;
-    }
-    let live = true;
-    civic
-      .civic_view_request({ resource: "alerts", params: {} })
-      .then((res) => {
-        if (live) set_alerts((res.data as alert_entry[]) ?? []);
-      })
-      .catch(() => {
-        if (live) set_alerts([]);
-      });
-    return () => {
-      live = false;
-    };
-  }, [civic, prefs.city_alert_enabled]);
+    set_alerts(prefs.city_alert_enabled ? civic.alerts : EMPTY_ALERTS);
+  }, [civic.alerts, prefs.city_alert_enabled]);
 
   // Optimistic local hide, then persist per-resident. On a backend failure, roll
   // the id back into view so the list reflects what the server actually stored.
@@ -366,31 +367,27 @@ export function Portal() {
     [accounts],
   );
 
-  // Load persisted profile + linked accounts on mount.
-  const loaded = useRef(false);
+  // Mirror the linked-accounts query into local state (screens and the optimistic
+  // link/unlink handlers read/edit `linked`).
   useEffect(() => {
-    if (loaded.current) return;
-    loaded.current = true;
-    void accounts.load_profile().then((p) => {
-      if (p) set_profile(p);
-    });
-    void accounts
-      .list_accounts()
-      .then((accts) => {
-        set_linked(accts);
-        // Startup scrape: sync every linked account on app open. Failures raise a
-        // local notification via the on_sync_result subscription above.
-        if (accts.length > 0) {
-          void accounts.sync_all(accts.map((a) => a.site_id));
-        }
-      })
-      .catch(() => {});
-    // Seed the notification toggles from the resident's stored opt-ins. push_enabled
-    // (the master switch) has no backend field, so it stays at its default.
-    void notifications.get_preferences().then((stored) => {
-      if (stored) set_prefs((prev) => ({ ...prev, ...stored }));
-    });
-  }, [accounts, notifications]);
+    set_linked(accounts.linked);
+  }, [accounts.linked]);
+
+  // Seed the profile form once, so a later refetch does not clobber edits.
+  const profile_loaded = useRef(false);
+  useEffect(() => {
+    if (profile_loaded.current || !accounts.profile) return;
+    set_profile(accounts.profile);
+    profile_loaded.current = true;
+  }, [accounts.profile]);
+
+  // Seed the notification toggles once. push_enabled has no backend field.
+  const prefs_loaded = useRef(false);
+  useEffect(() => {
+    if (prefs_loaded.current || !notifications.preferences) return;
+    set_prefs((prev) => ({ ...prev, ...notifications.preferences }));
+    prefs_loaded.current = true;
+  }, [notifications.preferences]);
 
   // --- panel renderer ---
   const render_body = () => {
@@ -453,6 +450,7 @@ export function Portal() {
     >
       <View style={{ flex: 1 }}>{render_body()}</View>
       <View onLayout={(e) => set_chrome_height(e.nativeEvent.layout.height)}>
+        <OfflineBanner />
         <WakeBar
           muted={!wake_enabled}
           triggered={engine.wake_triggered}

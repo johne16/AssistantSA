@@ -21,10 +21,10 @@ export function SessionProvider({
   );
 }
 
-export function use_resident_session(): resident_session {
+export function useResidentSession(): resident_session {
   const value = useContext(session_context);
   if (!value) {
-    throw new Error("use_resident_session must be used within SessionProvider");
+    throw new Error("useResidentSession must be used within SessionProvider");
   }
   return value;
 }
