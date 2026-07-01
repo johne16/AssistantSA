@@ -41,6 +41,12 @@ export interface agent_request {
   params: set_reminder_params;
 }
 
+// agent list-reminders invocation payload (assistant path).
+export interface agent_list_request {
+  tenant_context_token: string;
+  operation: "list_reminders";
+}
+
 // Resolved tenant claims passed by ap-server after gateway validation.
 export interface tenant_claims {
   sub: string;

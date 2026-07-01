@@ -2,6 +2,7 @@
 
 import { create_reminders_service } from "./service.js";
 import type {
+  agent_list_request,
   agent_request,
   reminder_entry,
   reminders_handler_deps,
@@ -20,6 +21,7 @@ export interface reminders_handler {
   dismiss_reminder(reminder_id: string, claims: tenant_claims): Promise<void>;
   // Assistant: RS256-verify the forwarded token, never bare claims.
   agent_request(request: agent_request): Promise<reminder_entry>;
+  agent_list_reminders(request: agent_list_request): Promise<reminder_entry[]>;
   // Scheduler.
   run_reminder_evaluation(): Promise<void>;
 }
@@ -76,6 +78,16 @@ export function create_reminders_handler(
     });
   }
 
+  async function agent_list_reminders(
+    request: agent_list_request,
+  ): Promise<reminder_entry[]> {
+    return with_logging("agent_list_reminders", async () => {
+      // Local RS256 signature verification; rejects on bad signature or expiry.
+      const token = await token_verifier.verify(request.tenant_context_token);
+      return service.list_reminders(token);
+    });
+  }
+
   async function run_reminder_evaluation(): Promise<void> {
     await with_logging("run_reminder_evaluation", () =>
       service.run_reminder_evaluation(),
@@ -87,6 +99,7 @@ export function create_reminders_handler(
     list_reminders,
     dismiss_reminder,
     agent_request,
+    agent_list_reminders,
     run_reminder_evaluation,
   };
 }

@@ -109,6 +109,21 @@ export const seed_tools: task_tool[] = [
   },
   {
     tool_definition: {
+      name: "check_reminders",
+      description:
+        "Use when the resident asks what reminders they have coming up, or whether a reminder is set for something. Returns the resident's upcoming reminders.",
+      input_schema: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+    downstream: "ap-reminders",
+    operation: "list_reminders",
+    requires_confirmation: false,
+  },
+  {
+    tool_definition: {
       name: "my_area",
       description:
         "Use when the resident asks which school or neighborhood service area they belong to. Resolves to the resident's saved address automatically.",

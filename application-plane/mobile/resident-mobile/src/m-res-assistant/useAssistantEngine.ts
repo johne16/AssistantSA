@@ -243,6 +243,14 @@ export function useAssistantEngine(props: {
       // replace the bubble's text rather than append fragments.
       upsert_turn(id, event.role, event.text, !event.final, false);
       if (event.final) ids[event.role] = null;
+      // Once the user's utterance is final the LLM turn is incoming, but the voice
+      // assistant transcript only lands at the end of the turn. Seed a pending,
+      // empty assistant bubble now so the "working" indicator shows meanwhile.
+      if (event.role === "user" && event.final && !ids.assistant) {
+        const assistant_id = next_turn_id();
+        ids.assistant = assistant_id;
+        upsert_turn(assistant_id, "assistant", "", true, false);
+      }
     },
     [upsert_turn],
   );

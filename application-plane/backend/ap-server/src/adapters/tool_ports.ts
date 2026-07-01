@@ -67,11 +67,23 @@ export function create_utility_tool_port(handler: utility_handler): tool_request
   };
 }
 
-// The assistant set_reminder tool maps title/body/scheduled_at straight through
-// to ap-reminders.set_reminder via its agent_request path.
+// The assistant reminders tools map onto ap-reminders' agent paths: set_reminder
+// writes a reminder, list_reminders returns the resident's upcoming reminders.
 export function create_reminders_tool_port(handler: reminders_handler): tool_request_port {
   return {
     async send(request: tool_request): Promise<tool_response> {
+      if (request.operation === "list_reminders") {
+        const entries = await handler.agent_list_reminders({
+          tenant_context_token: request.tenant_context_token,
+          operation: "list_reminders",
+        });
+        // Only upcoming reminders, soonest first, so the assistant reports what
+        // is still ahead rather than fired or dismissed ones.
+        const upcoming = entries
+          .filter((e) => e.status === "upcoming")
+          .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at));
+        return { operation: request.operation, result: upcoming };
+      }
       const title = as_string(request.params["title"]) ?? "";
       const body = as_string(request.params["body"]) ?? "";
       const scheduled_at = as_string(request.params["scheduled_at"]);
