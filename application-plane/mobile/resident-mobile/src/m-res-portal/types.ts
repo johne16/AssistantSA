@@ -44,8 +44,22 @@ export interface tab_def {
 export interface linked_account {
   site_id: string;
   provider: string;
-  sign_in_url: string;
 }
+
+// A selectable utility provider. site_id must equal the base name of a backend
+// scrape script file (application-plane/backend/ap-utility/scrape_scripts/<site_id>.js);
+// provider is the display name shown in the add-account dropdown. To offer a new
+// site, add a script file there and add its matching entry here.
+export interface provider_option {
+  site_id: string;
+  provider: string;
+}
+
+// The providers the resident can link. Drives the add-account dropdown.
+export const PROVIDER_CATALOG: provider_option[] = [
+  { site_id: "cps", provider: "CPS Energy" },
+  { site_id: "att", provider: "AT&T" },
+];
 
 // Resident profile entered in Settings, owned by the portal. Empty strings until
 // the resident fills them in; no values are seeded.

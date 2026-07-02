@@ -56,14 +56,12 @@ export interface scrape_script_entry {
 // device keystore keyed by site_id; never leave the device.
 export interface credential_entry {
   site_id: string;
-  sign_in_url: string;
   username: string;
   password: string;
 }
 
 // Stored credential record (keystore value, keyed by site_id).
 export interface stored_credentials {
-  sign_in_url: string;
   username: string;
   password: string;
 }
@@ -84,7 +82,6 @@ export interface resident_profile {
 export interface linked_account {
   site_id: string;
   provider: string;
-  sign_in_url: string;
 }
 
 // profile save request body.

@@ -16,7 +16,6 @@ function store_key(site_id: string): string {
 // Write the resident's credentials for a site to the keystore.
 export async function save_credentials(entry: credential_entry): Promise<void> {
   const value: stored_credentials = {
-    sign_in_url: entry.sign_in_url,
     username: entry.username,
     password: entry.password,
   };

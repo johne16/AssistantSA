@@ -17,13 +17,12 @@ import type { credential_entry } from "./types";
 
 export interface link_account_fields_props {
   site_id: string;
-  sign_in_url: string;
   // Fired after the entry is written to the keystore. No values are passed up.
   on_linked?: () => void;
 }
 
 export function LinkAccountFields(props: link_account_fields_props) {
-  const { site_id, sign_in_url, on_linked } = props;
+  const { site_id, on_linked } = props;
   const [username, set_username] = useState("");
   const [password, set_password] = useState("");
   const [saving, set_saving] = useState(false);
@@ -31,7 +30,7 @@ export function LinkAccountFields(props: link_account_fields_props) {
   async function submit() {
     set_saving(true);
     try {
-      const entry: credential_entry = { site_id, sign_in_url, username, password };
+      const entry: credential_entry = { site_id, username, password };
       await save_credentials(entry);
       set_username("");
       set_password("");

@@ -191,7 +191,7 @@ export const strings_es: Record<string, string> = {
   "Couldn't unlink. Check your connection and try again.": "No se pudo desvincular. Revisa tu conexión e inténtalo de nuevo.",
   "Link a new account": "Vincular una cuenta nueva",
   "Provider name": "Nombre del proveedor",
-  "Provider sign-in URL": "URL de inicio de sesión del proveedor",
+  "Select a provider": "Selecciona un proveedor",
   "Couldn't link the account. Check your connection and try again.": "No se pudo vincular la cuenta. Revisa tu conexión e inténtalo de nuevo.",
   "Enter a provider name and sign-in URL to continue. Your username and password stay encrypted on this phone and never leave it.": "Ingresa el nombre del proveedor y la URL de inicio de sesión para continuar. Tu usuario y contraseña permanecen cifrados en este teléfono y nunca salen de él.",
 
@@ -248,7 +248,7 @@ export const strings_es: Record<string, string> = {
   "Bex only reads what you link. Nothing is shared.": "Bex solo lee lo que vinculas. No se comparte nada.",
   "New account": "Cuenta nueva",
   "Add account": "Agregar cuenta",
-  "Enter your provider login. Bex uses it to fetch your data.": "Ingresa el inicio de sesión de tu proveedor. Bex lo usa para obtener tus datos.",
+  "Choose your provider and sign in. Bex uses it to fetch your data.": "Elige tu proveedor e inicia sesión. Bex lo usa para obtener tus datos.",
   "Provider": "Proveedor",
   "Credentials are stored encrypted on your device.": "Las credenciales se almacenan cifradas en tu dispositivo.",
 

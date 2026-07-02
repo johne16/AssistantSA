@@ -1,14 +1,15 @@
 // Accounts surface. Lists linked utility providers and hosts the add-account
 // form. The portal never holds credentials: LinkAccountFields captures them
-// on-device and writes them to the keystore; this screen passes the site_id +
-// sign-in URL only and never reads username/password.
+// on-device and writes them to the keystore; this screen passes the site_id
+// only and never reads username/password.
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTheme, useT } from "@/m-res-shell";
 import { LinkAccountFields } from "@/m-res-accounts";
 import { Screen } from "../components/chrome";
-import { BackLink, Field, Note, SectionHeader } from "../components/ui";
+import { BackLink, Note, SectionHeader } from "../components/ui";
+import { PROVIDER_CATALOG } from "../types";
 import type { linked_account, panel_id } from "../types";
 
 // First letter of the provider, for the row mark (mockup .acct-ico).
@@ -187,16 +188,14 @@ export function AddAccountScreen(props: {
   const t = useTheme();
   const tr = useT();
   const c = t.color;
-  const [provider, set_provider] = useState("");
-  const [sign_in_url, set_sign_in_url] = useState("");
+  const [selected_site_id, set_selected_site_id] = useState<string | null>(null);
+  const [open, set_open] = useState(false);
   const [link_error, set_link_error] = useState(false);
 
-  // The site_id for a new link, derived once the resident names a provider.
-  const new_site_id = useMemo(
-    () => provider.trim().toLowerCase().replace(/\s+/g, "-"),
-    [provider],
-  );
-  const can_capture = new_site_id.length > 0 && sign_in_url.trim().length > 0;
+  // The chosen provider, resolved from the fixed catalog. site_id is never typed
+  // by the resident; it must match a backend scrape script file name.
+  const selected = PROVIDER_CATALOG.find((p) => p.site_id === selected_site_id);
+  const can_capture = selected != null;
 
   return (
     <Screen>
@@ -204,37 +203,94 @@ export function AddAccountScreen(props: {
       <SectionHeader
         eyebrow={tr("New account")}
         title={tr("Add account")}
-        detail={tr("Enter your provider login. Bex uses it to fetch your data.")}
+        detail={tr("Choose your provider and sign in. Bex uses it to fetch your data.")}
       />
 
-      <Field
-        label={tr("Provider")}
-        placeholder="CPS Energy"
-        autoCapitalize="words"
-        value={provider}
-        onChangeText={set_provider}
-      />
-      <Field
-        label={tr("Provider sign-in URL")}
-        placeholder="https://my.provider.com/login"
-        autoCapitalize="none"
-        keyboardType="url"
-        value={sign_in_url}
-        onChangeText={set_sign_in_url}
-      />
+      {/* Provider dropdown. Options come from PROVIDER_CATALOG in the portal
+          types file; the resident selects a site rather than typing one. */}
+      <Text
+        style={{
+          fontFamily: t.font.body,
+          fontSize: 13,
+          color: c.ink_muted,
+          marginBottom: t.spacing.xs,
+        }}
+      >
+        {tr("Provider")}
+      </Text>
+      <Pressable
+        onPress={() => set_open((v) => !v)}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderWidth: 1,
+          borderColor: c.border_strong,
+          borderRadius: t.radius.sm,
+          backgroundColor: c.surface_raised,
+          paddingHorizontal: t.spacing.md,
+          paddingVertical: 12,
+        }}
+      >
+        <Text
+          style={{
+            fontFamily: t.font.body,
+            fontSize: 16,
+            color: selected ? c.ink : c.ink_subtle,
+          }}
+        >
+          {selected ? selected.provider : tr("Select a provider")}
+        </Text>
+        <Text style={{ fontSize: 14, color: c.ink_subtle }}>{open ? "▲" : "▼"}</Text>
+      </Pressable>
+      {open ? (
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: c.border,
+            borderRadius: t.radius.sm,
+            backgroundColor: c.surface,
+            marginTop: t.spacing.xs,
+            overflow: "hidden",
+          }}
+        >
+          {PROVIDER_CATALOG.map((p, i) => (
+            <Pressable
+              key={p.site_id}
+              onPress={() => {
+                set_selected_site_id(p.site_id);
+                set_open(false);
+                set_link_error(false);
+              }}
+              style={{
+                paddingHorizontal: t.spacing.md,
+                paddingVertical: 12,
+                borderTopWidth: i === 0 ? 0 : 1,
+                borderTopColor: c.border,
+                backgroundColor:
+                  p.site_id === selected_site_id ? c.primary_soft : c.surface,
+              }}
+            >
+              <Text
+                style={{ fontFamily: t.font.body, fontSize: 16, color: c.ink }}
+              >
+                {p.provider}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
       {/* Credential fields are captured on-device by m-res-accounts. The portal
-          passes the site_id + url only and never reads username/password. */}
+          passes the site_id only and never reads username/password. */}
       {can_capture ? (
         <View style={{ marginTop: t.spacing.md }}>
           <LinkAccountFields
-            site_id={new_site_id}
-            sign_in_url={sign_in_url.trim()}
+            site_id={selected.site_id}
             on_linked={async () => {
               const ok = await props.on_linked({
-                site_id: new_site_id,
-                provider: provider.trim(),
-                sign_in_url: sign_in_url.trim(),
+                site_id: selected.site_id,
+                provider: selected.provider,
               });
               if (ok) {
                 set_link_error(false);

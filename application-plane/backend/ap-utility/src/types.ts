@@ -58,17 +58,6 @@ export interface scrape_script_entry {
 // site_id -> entry mapping. Loaded in memory; script holds the script code.
 export type scrape_script_registry = Record<string, scrape_script_entry>;
 
-// On-disk manifest entry in the module's scrape_scripts/registry.json.
-// script_file names a file in the scrape_scripts folder whose contents become
-// scrape_script_entry.script once loaded.
-export interface scrape_script_manifest_entry {
-  url: string;
-  script_file: string;
-}
-
-// site_id -> manifest entry mapping, as stored in registry.json.
-export type scrape_script_manifest = Record<string, scrape_script_manifest_entry>;
-
 // Notification request handed to the notifier port.
 export interface notify_request {
   type: notify_request_type;
@@ -122,7 +111,6 @@ export interface resident_profile {
 export interface linked_account {
   site_id: string;
   provider: string;
-  sign_in_url: string;
 }
 
 // Module config.

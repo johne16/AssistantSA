@@ -118,7 +118,6 @@ async function ensure_schema(pool: Pool, schema: string): Promise<void> {
     sub text NOT NULL,
     site_id text NOT NULL,
     provider text NOT NULL,
-    sign_in_url text NOT NULL,
     PRIMARY KEY (sub, site_id)
   )`);
   // reminders table. scheduled_at is text, not timestamptz: it carries the local
@@ -424,24 +423,22 @@ export function create_utility_store(pool: Pool): utility_store {
     async save_linked_account(city_tenant_id, sub, account: linked_account) {
       const s = await scoped(pool, city_tenant_id);
       await pool.query(
-        `INSERT INTO ${s}.linked_account (sub, site_id, provider, sign_in_url)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO ${s}.linked_account (sub, site_id, provider)
+         VALUES ($1, $2, $3)
          ON CONFLICT (sub, site_id) DO UPDATE SET
-           provider = EXCLUDED.provider,
-           sign_in_url = EXCLUDED.sign_in_url`,
-        [sub, account.site_id, account.provider, account.sign_in_url],
+           provider = EXCLUDED.provider`,
+        [sub, account.site_id, account.provider],
       );
     },
     async list_linked_accounts(city_tenant_id, sub): Promise<linked_account[]> {
       const s = await scoped(pool, city_tenant_id);
       const r = await pool.query(
-        `SELECT site_id, provider, sign_in_url FROM ${s}.linked_account WHERE sub = $1`,
+        `SELECT site_id, provider FROM ${s}.linked_account WHERE sub = $1`,
         [sub],
       );
       return r.rows.map((row) => ({
         site_id: row.site_id as string,
         provider: row.provider as string,
-        sign_in_url: row.sign_in_url as string,
       }));
     },
     async delete_linked_account(city_tenant_id, sub, site_id) {
