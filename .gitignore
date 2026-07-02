@@ -1,0 +1,70 @@
+# RSA private keys (sign the tenant_context_token)
+**/private.pem
+
+# signed tenant_context_token (local only)
+application-plane/mobile/resident-mobile/src/secrets/tenant_context_token.ts
+application-plane/mobile/resident-mobile/src/secrets
+
+# secrets / env
+.env
+.env.*
+!.env.example
+*.pem
+!**/public.pem
+
+# node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.npm/
+
+# typescript build output
+**/dist/
+*.tsbuildinfo
+
+# expo / react native
+.expo/
+.expo-shared/
+application-plane/mobile/resident-mobile/.expo/
+web-build/
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+*.orig.*
+**/expo-env.d.ts
+
+# android / ios (bare native projects)
+**/android/
+**/ios/
+*.iml
+*.hprof
+*.jsbundle
+*.pbxuser
+
+# rust
+application-plane/backend/ap-voice/target/
+
+# python (crawl-service)
+application-plane/backend/crawl-service/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# os / editor
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+
+# Claude
+.claude/
+CLAUDE.md
+
+# folders
+notes/
+design/
+
+# files
+PLACEHOLDERS.md
