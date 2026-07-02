@@ -31,6 +31,7 @@ Request flow: the mobile client calls the `ap-server` REST gateway (or opens the
 | [ios_simulator_testing.md](supplemental_instructions/ios_simulator_testing.md) | iOS Simulator (Mac) |
 | [mobile_deployment.md](supplemental_instructions/mobile_deployment.md) | Ship to a physical iPhone |
 | [adding_scrape_scripts.md](supplemental_instructions/adding_scrape_scripts.md) | Utility accounts the app supports |
+| [tailscale_setup.md](supplemental_instructions/tailscale_setup.md) | Run the backend locally with tailscale |
 
 ## Initial setup
 
