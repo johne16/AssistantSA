@@ -108,8 +108,8 @@ export interface feed_item {
   dismissible: boolean;
 }
 
-// Per-type opt-in toggles surfaced by Settings. Owned by the portal; the
-// notifications module is disconnected in this build.
+// Per-type opt-in toggles surfaced by Settings. Owned by the portal and synced
+// to the notifications module.
 export interface notification_preferences {
   push_enabled: boolean;
   utility_alert_enabled: boolean;

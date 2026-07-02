@@ -19,7 +19,7 @@ Request flow: the mobile client calls the `ap-server` REST gateway (or opens the
   - [ap-voice/README.md](application-plane/backend/ap-voice/README.md) Rust voice service.
   - [crawl-service/README.md](application-plane/backend/crawl-service/README.md) Python crawl sidecar. Dead code: every civic source moved to raw HTTP GET, so nothing calls it and the host no longer spawns it. Kept in the tree pending exploration for future use.
 - `application-plane/mobile/resident-mobile/` Expo/React Native resident client. See [resident-mobile/README.md](application-plane/mobile/resident-mobile/README.md).
-  - `src/m-res-notifications/` Dead code for the moment: notifications are disconnected, the portal no longer wires the hook, and nothing raises a notification anywhere in the app. Kept in the tree for future push notifications. The preference toggles it defines now gate the home-screen alert feed instead.
+  - `src/m-res-notifications/` `useNotifications` hook. The portal wires it: it drains the backend pending queue and raises local notifications for reminders and sync failures through `expo-notifications`. The `push_enabled` toggle is the master switch; `city_alert_enabled` also gates the home-screen alert feed.
 
 ## Supplemental instructions
 
