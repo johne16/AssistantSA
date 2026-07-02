@@ -45,16 +45,17 @@ Builds the app on the Mac mini with a free Apple ID and installs it onto a physi
 
 ## A.2 Point the app at the backend
 
-1. Open `application-plane/mobile/resident-mobile/src/app-config.ts`.
-2. Set `api_gateway_base_url` to the backend URL reachable from the iPhone:
+By default `api_gateway_base_url` is resolved at runtime from the Metro dev server host the JS bundle loaded from. For this project the backend is reached over Tailscale, so hardcode the host instead.
+
+1. Set up Tailscale first: [tailscale_setup.md](tailscale_setup.md).
+2. Open `application-plane/mobile/resident-mobile/src/app-config.ts`.
+3. Replace the `api_gateway_base_url: resolve_api_gateway_base_url()` line with the Tailscale host (the commented line below it is a template):
 
    ```ts
-   api_gateway_base_url: "<backend-url>:8080"
+   api_gateway_base_url: "http://100.x.y.z:8080",
    ```
 
-   Either the backend host's LAN IP (iPhone on the same Wi-Fi) or the Codespaces forwarded public URL.
-
-3. Save before building. The value is baked in at build time.
+4. Save before building.
 
 ## A.3 Generate the native iOS project (one time)
 

@@ -15,11 +15,12 @@ Follow the steps in order.
 - [5. Confirm both devices are on the tailnet](#5-confirm-both-devices-are-on-the-tailnet)
 - [6. Find the computer's Tailscale IP](#6-find-the-computers-tailscale-ip)
 - [7. Bind the backend so the phone can reach it](#7-bind-the-backend-so-the-phone-can-reach-it)
-- [8. Point the mobile client at the computer](#8-point-the-mobile-client-at-the-computer)
-  - [8a. Hardcode the URL in app-config.ts](#8a-hardcode-the-url-in-app-configts)
-  - [8b. Serve Metro over the Tailscale IP (leave the resolver in place)](#8b-serve-metro-over-the-tailscale-ip-leave-the-resolver-in-place)
-- [9. Verifying the connection](#9-verifying-the-connection)
-- [10. Everyday use](#10-everyday-use)
+- [8. Reverting the firewall to default](#8-reverting-the-firewall-to-default)
+- [9. Point the mobile client at the computer](#9-point-the-mobile-client-at-the-computer)
+  - [9a. Hardcode the URL in app-config.ts](#9a-hardcode-the-url-in-app-configts)
+  - [9b. Serve Metro over the Tailscale IP (leave the resolver in place)](#9b-serve-metro-over-the-tailscale-ip-leave-the-resolver-in-place)
+- [10. Verifying the connection](#10-verifying-the-connection)
+- [11. Everyday use](#11-everyday-use)
 - [Sources](#sources)
 
 ## 1. How this works
@@ -76,22 +77,46 @@ Follow the steps in order.
 ## 7. Bind the backend so the phone can reach it
 
 1. The backend gateway must listen on all interfaces, not just `127.0.0.1`, or the phone cannot connect. The app gateway listens on `0.0.0.0:8080`, which is correct.
-2. Allow inbound connections on the Tailscale interface through Windows Defender Firewall. In an **elevated** PowerShell:
+2. When Node first binds the port, Windows Defender Firewall auto-creates inbound **block** rules for `node.exe`. A block rule always overrides an allow rule, so these must be removed or the phone cannot connect. In an **elevated** PowerShell, disable them (disabling is reversible; see Step 8):
    ```powershell
-   # allow inbound TCP on the gateway port so the phone can reach it
-   New-NetFirewallRule -DisplayName "AssistantSA backend 8080" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
+   # disable the auto-created inbound block rules for node.exe
+   Get-NetFirewallRule -Direction Inbound -Action Block -Enabled True |
+     Where-Object { ($_ | Get-NetFirewallApplicationFilter).Program -like "*node*" } |
+     Set-NetFirewallRule -Enabled False
    ```
-3. Start the backend from the repository root:
+3. Add an inbound allow rule scoped to the Tailscale IP range (`100.64.0.0/10`), so only tailnet devices can reach 8080 and it is not exposed to other LANs. In the same **elevated** PowerShell:
+   ```powershell
+   # allow inbound TCP on 8080 only from Tailscale addresses
+   New-NetFirewallRule -DisplayName "AssistantSA backend 8080" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -RemoteAddress 100.64.0.0/10
+   ```
+4. Start the backend from the repository root:
    ```powershell
    # start the ap-server host (spawns the Rust and Python sidecars)
    npm start
    ```
 
-## 8. Point the mobile client at the computer
+## 8. Reverting the firewall to default
+
+Undo the Step 7 firewall changes in an **elevated** PowerShell.
+
+1. Remove the allow rule that was added:
+   ```powershell
+   # delete the Tailscale allow rule
+   Remove-NetFirewallRule -DisplayName "AssistantSA backend 8080"
+   ```
+2. Re-enable the `node.exe` block rules that were disabled, restoring Windows' default of blocking inbound to Node:
+   ```powershell
+   # re-enable the auto-created inbound block rules for node.exe
+   Get-NetFirewallRule -Direction Inbound -Action Block -Enabled False |
+     Where-Object { ($_ | Get-NetFirewallApplicationFilter).Program -like "*node*" } |
+     Set-NetFirewallRule -Enabled True
+   ```
+
+## 9. Point the mobile client at the computer
 
 In dev, `api_gateway_base_url` is not read from a manually set field; `app-config.ts` derives it from the Metro dev server host the bundle loaded from. There are two ways to make the phone use the Tailscale IP. Use one.
 
-### 8a. Hardcode the URL in app-config.ts
+### 9a. Hardcode the URL in app-config.ts
 
 1. Open `application-plane/mobile/resident-mobile/src/app-config.ts`.
 2. At the `api_gateway_base_url` field, comment out the resolver call and uncomment the literal, then set the Tailscale IP from Step 6:
@@ -101,7 +126,7 @@ In dev, `api_gateway_base_url` is not read from a manually set field; `app-confi
    ```
 3. This is the single value every module reads.
 
-### 8b. Serve Metro over the Tailscale IP (leave the resolver in place)
+### 9b. Serve Metro over the Tailscale IP (leave the resolver in place)
 
 1. Leave `api_gateway_base_url: resolve_api_gateway_base_url()` as-is.
 2. Start Expo so the phone loads the bundle from the computer's Tailscale IP, which makes the resolver derive the same host:
@@ -115,15 +140,23 @@ In dev, `api_gateway_base_url` is not read from a manually set field; `app-confi
 
 1. Make sure the Tailscale VPN toggle on the phone is **on** whenever you use the app.
 
-## 9. Verifying the connection
+## 10. Verifying the connection
 
-1. With Tailscale on and the backend running, open a browser on the phone and go to `http://100.x.y.z:8080`.
-2. If the gateway responds, the phone can reach the backend and the mobile client will work.
-3. If it does not respond, check, in order: Tailscale is on and connected on both devices (Step 5), the backend is running (Step 7), and the firewall rule was added (Step 7).
+1. With Tailscale on and the backend running, open a browser on the phone and go to `http://100.x.y.z:8080/health`.
+2. If it shows `{"status":"ok"}`, the phone can reach the backend and the mobile client will work.
+3. If it does not respond, check, in order: Tailscale is on and connected on both devices (Step 5), the backend is running (Step 7), the `node.exe` block rules were disabled and the allow rule was added (Step 7), and the IP matches `tailscale ip -4` on the computer.
+4. Confirm no enabled inbound block rule for `node.exe` remains (a block rule overrides the allow):
+   ```powershell
+   # list any still-enabled inbound block rules targeting node.exe
+   Get-NetFirewallRule -Direction Inbound -Action Block -Enabled True |
+     Where-Object { ($_ | Get-NetFirewallApplicationFilter).Program -like "*node*" } |
+     Select-Object DisplayName
+   ```
+   If any print, disable them as in Step 7.
 
-## 10. Everyday use
+## 11. Everyday use
 
-1. The computer stays signed in to Tailscale and keeps its Tailscale IP across networks, so the address in Step 8 does not need to change.
+1. The computer stays signed in to Tailscale and keeps its Tailscale IP across networks, so the address in Step 9 does not need to change.
 2. On the phone, keep the Tailscale VPN toggle on while using the app.
 3. Start the backend on the computer whenever you need it. The phone reaches it over Tailscale from any network.
 

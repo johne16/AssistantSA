@@ -63,7 +63,7 @@ From the repo root, build and start the backend host. This spawns Redis and the 
 
 ```
 npm run build
-node application-plane/backend/ap-server/dist/index.js
+npm start
 ```
 
 The host loads a repo-root `.env` itself when one is present, so no `--env-file` flag is needed.

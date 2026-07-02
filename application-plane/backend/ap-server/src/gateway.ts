@@ -55,6 +55,11 @@ export function create_gateway(modules: gateway_modules): express.Express {
 
   const { token_verifier } = modules;
 
+  // Unauthenticated health check so a browser can confirm reachability.
+  app.get("/health", (_req: Request, res: Response) => {
+    res.json({ status: "ok" });
+  });
+
   // Edge auth: pull the token, verify its RS256 signature, and return the token
   // plus decoded claims. Sends 401 itself and returns null on missing/invalid
   // token so callers can distinguish auth failures from downstream work errors.
