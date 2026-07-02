@@ -68,13 +68,13 @@ index 8904fc2..e4fa6f6 100644
      return ExpoTwoWayAudioModule.toggleRecording(val);
  }
 diff --git a/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift b/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift
-index 46d6b22..658fb57 100644
+index 46d6b22..0ae77f7 100644
 --- a/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift
 +++ b/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift
 @@ -239,6 +239,14 @@ class AudioEngine {
          input.isVoiceProcessingBypassed = bypass
      }
- 
+     
 +    // Drop all audio not yet played. stop() clears every scheduled buffer on the
 +    // player node; play() leaves it ready for the next turn. Used for barge-in.
 +    func flush() {
@@ -87,7 +87,7 @@ index 46d6b22..658fb57 100644
          isRecording = val
          if !isRecording {
 diff --git a/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift b/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift
-index 1634369..c340710 100644
+index 1634369..a04de88 100644
 --- a/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift
 +++ b/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift
 @@ -114,6 +114,10 @@ public class ExpoTwoWayAudioModule: Module {
@@ -101,6 +101,41 @@ index 1634369..c340710 100644
          Function("isPlaying") { () -> Bool in
              return self.audioEngine?.isPlaying ?? false
          }
+@@ -122,7 +126,7 @@ public class ExpoTwoWayAudioModule: Module {
+             EXPermissionsMethodsDelegate.getPermissionWithPermissionsManager(
+                 self.appContext?.permissions,
+                 withRequester: MicrophonePermissionRequester.self,
+-                resolve: promise.resolver,
++                resolve: promise.legacyResolver,
+                 reject: promise.legacyRejecter
+             )
+         }
+@@ -131,7 +135,7 @@ public class ExpoTwoWayAudioModule: Module {
+             EXPermissionsMethodsDelegate.askForPermission(
+                 withPermissionsManager: self.appContext?.permissions,
+                 withRequester: MicrophonePermissionRequester.self,
+-                resolve: promise.resolver,
++                resolve: promise.legacyResolver,
+                 reject: promise.legacyRejecter
+             )
+         }
+diff --git a/node_modules/@speechmatics/expo-two-way-audio/ios/MicrophonePermissionRequester.swift b/node_modules/@speechmatics/expo-two-way-audio/ios/MicrophonePermissionRequester.swift
+index fb81f46..ca19627 100644
+--- a/node_modules/@speechmatics/expo-two-way-audio/ios/MicrophonePermissionRequester.swift
++++ b/node_modules/@speechmatics/expo-two-way-audio/ios/MicrophonePermissionRequester.swift
+@@ -15,10 +15,10 @@ class MicrophonePermissionRequester: NSObject, EXPermissionsRequester {
+     var status: EXPermissionStatus
+ 
+     guard (Bundle.main.infoDictionary?["NSMicrophoneUsageDescription"]) != nil else {
+-      EXFatal(EXErrorWithMessage("""
++      NSLog("""
+         This app is missing NSMicrophoneUsageDescription, so audio services will fail.
+         Add one of these keys to your bundle's Info.plist.
+-      """))
++      """)
+       return ["status": EXPermissionStatusDenied]
+     }
+ 
 diff --git a/node_modules/@speechmatics/expo-two-way-audio/src/core.ts b/node_modules/@speechmatics/expo-two-way-audio/src/core.ts
 index 2ab05d5..0a752ae 100644
 --- a/node_modules/@speechmatics/expo-two-way-audio/src/core.ts
