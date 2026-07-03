@@ -42,8 +42,8 @@ export const app_config = {
     // m-res-auth
     tenant_context_token,
     // m-res-accounts / m-res-civic / m-res-assistant
-    // api_gateway_base_url: resolve_api_gateway_base_url(),
-    api_gateway_base_url: "http://100.68.119.12:8080",  // tailscale deployment
+    api_gateway_base_url: resolve_api_gateway_base_url(),
+    // api_gateway_base_url: "http://100.68.119.12:8080",  // tailscale deployment
     // m-res-accounts
     max_concurrent_syncs: 3,
     // m-res-assistant

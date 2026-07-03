@@ -39,11 +39,21 @@ Native changes (changed native code, or added a library with native modules): re
 npm run android    # or: npm run ios
 ```
 
+Native config changes (`app.json` icons, plugins, permissions, bundle id): regenerate the native project first, then rebuild:
+
+```
+npx expo prebuild -p ios --clean      # or: -p android
+npm run ios                           # or: npm run android
+```
+
 ## Patched dependency: @speechmatics/expo-two-way-audio
 
 The voice playback engine is patched via `patch-package` (patch in `patches/`, applied automatically by the `postinstall` script on every `npm install`).
 
-What the patch adds: a `flush()` function on the native audio engine (Android `AudioTrack.flush()` after pause/play; iOS `AVAudioPlayerNode.stop()`/`play()`), exposed through both native modules and the JS wrapper (`src/core.ts`, `build/core.js`, `build/core.d.ts`).
+What the patch adds:
+
+- A `flush()` function on the native audio engine (Android `AudioTrack.flush()` after pause/play; iOS `AVAudioPlayerNode.stop()`/`play()`), exposed through both native modules and the JS wrapper (`src/core.ts`, `build/core.js`, `build/core.d.ts`).
+- iOS SDK-56 build fixes: the library targets an older expo-modules-core. `promise.resolver` → `promise.legacyResolver` (matches `EXPromiseResolveBlock`) in `ExpoTwoWayAudioModule.swift`, and the removed `EXFatal`/`EXErrorWithMessage` → `NSLog` in `MicrophonePermissionRequester.swift`. Without these, `expo run:ios` fails to compile.
 
 Why: the library queues PCM into an Android `AudioTrack` (`MODE_STREAM`) / iOS player node with no public mid-stream flush, so barge-in could not cut in-flight assistant speech. `m-res-assistant/audio-io.ts` calls `flush()` on barge-in to drop the rest of the reply instantly.
 

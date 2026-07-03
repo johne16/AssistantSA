@@ -8,7 +8,7 @@
     "scheme": "residentmobile",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/icon.png",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Microphone access is used for hands-free voice with the assistant.",
         "NSAppTransportSecurity": {
