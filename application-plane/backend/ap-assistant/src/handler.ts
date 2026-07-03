@@ -52,9 +52,17 @@ class handler_impl implements assistant_handler {
   // Thin ws wiring: ap-voice connects, sends { tenant_context_token, transcript },
   // ap-assistant streams text chunks back over the same socket.
   handle_voice_connection(socket: voice_socket): void {
+    let closed = false;
+    // Serialize turns per socket: a transcript is processed only after the
+    // previous turn's chunks (and its done frame) have been sent, so two turns
+    // never interleave on the wire or race append_history on the same session.
+    let queue: Promise<void> = Promise.resolve();
     socket.on("error", () => {});
+    socket.on("close", () => {
+      closed = true;
+    });
     socket.on("message", (data: unknown) => {
-      void this.handle_voice_message(socket, data);
+      queue = queue.then(() => (closed ? undefined : this.handle_voice_message(socket, data)));
     });
   }
 
