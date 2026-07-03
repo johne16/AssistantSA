@@ -3,6 +3,7 @@
 // Routes and payloads match the resident-mobile gateway clients exactly.
 //
 //   POST /civic                    -> ap-civic.civic_read
+//   POST /civic/refresh            -> ap-civic.civic_refresh
 //   POST /utility/site-script      -> ap-utility.script_read
 //   POST /utility/bill-push        -> ap-utility.bill_push
 //   POST /utility/read             -> ap-utility.utility_read
@@ -122,6 +123,25 @@ export function create_gateway(modules: gateway_modules): express.Express {
         entry_id: string;
       };
       await modules.civic.civic_dismiss(action, entry_id, {
+        sub: claims.sub,
+        city_tenant_id: claims.city_tenant_id,
+        iat: claims.iat,
+        exp: claims.exp,
+      });
+      res.status(204).end();
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  // POST /civic/refresh { tenant_context_token } - app-open refresh of the
+  // resident's address-derived civic records.
+  app.post("/civic/refresh", async (req: Request, res: Response) => {
+    const auth = await authenticate(req, res);
+    if (!auth) return;
+    try {
+      const { claims } = auth;
+      await modules.civic.civic_refresh({
         sub: claims.sub,
         city_tenant_id: claims.city_tenant_id,
         iat: claims.iat,

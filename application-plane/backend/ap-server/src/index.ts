@@ -252,8 +252,6 @@ async function main(): Promise<void> {
       city_events_source_url: config.city_events_source_url,
       alerts_retention_days: config.alerts_retention_days,
       events_retention_days: config.events_retention_days,
-      collection_schedule_refresh_days: config.collection_schedule_refresh_days,
-      my_area_refresh_days: config.my_area_refresh_days,
     },
     store: civic_store,
     data_reader: civic_data_reader,

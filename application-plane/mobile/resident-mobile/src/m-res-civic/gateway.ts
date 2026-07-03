@@ -4,6 +4,7 @@ import type {
   civic_api_request,
   civic_dismiss_api_request,
   civic_read_response,
+  civic_refresh_api_request,
   civic_view_request,
 } from "./types";
 
@@ -39,6 +40,23 @@ export async function civic_api_request(
     throw new Error(`civic gateway request failed: ${res.status}`);
   }
   return (await res.json()) as civic_read_response;
+}
+
+// POST the app-open refresh to the gateway: the server resolves all
+// address-derived civic records for the resident's saved address (204 No
+// Content); throws on a non-ok status.
+export async function civic_refresh_request(
+  tenant_context_token: string,
+): Promise<void> {
+  const body: civic_refresh_api_request = { tenant_context_token };
+  const res = await fetch(`${app_config.api_gateway_base_url}/civic/refresh`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`civic refresh request failed: ${res.status}`);
+  }
 }
 
 // POST a per-resident alert dismiss/restore to the gateway. Returns once the

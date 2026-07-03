@@ -38,11 +38,12 @@ export interface utility_service {
 export function create_utility_service(deps: utility_service_deps): utility_service {
   const { store, utility_systems, notifier, clock, config } = deps;
 
-  // Days between two ISO dates, target minus reference.
+  // Calendar days between two dates in local time, target minus reference.
   function days_until(target_iso: string, ref: Date): number {
-    const target = new Date(target_iso).getTime();
-    const diff_ms = target - ref.getTime();
-    return Math.ceil(diff_ms / 86_400_000);
+    const [y, m, d] = target_iso.slice(0, 10).split("-").map(Number);
+    const target = new Date(y, m - 1, d);
+    const ref_day = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+    return Math.round((target.getTime() - ref_day.getTime()) / 86_400_000);
   }
 
   async function read(
@@ -94,11 +95,11 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
       address,
     );
     const stored = await store.read_outages(tid, sub);
-    const known = new Set(stored.map((o) => o.outage_id));
+    const known = new Map(stored.map((o) => [o.outage_id, o]));
 
-    // Dedupe: only entries not already stored.
+    // Dedupe: entries not already stored, or stored with a different status.
     const fresh: outage_view[] = fetched
-      .filter((o) => !known.has(o.outage_id))
+      .filter((o) => known.get(o.outage_id)?.status !== o.status)
       .map((o) => ({
         address: o.address,
         status: o.status,
@@ -189,7 +190,7 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
         const bills = await store.read_bills(tid, sub);
         for (const bill of bills) {
           const remaining = days_until(bill.due_date, now);
-          if (remaining >= 0 && remaining <= config.bill_due_reminder_days) {
+          if (remaining === config.bill_due_reminder_days) {
             const token = synth_token(tid, sub, now);
             const request: notify_request = {
               type: "bill_due",

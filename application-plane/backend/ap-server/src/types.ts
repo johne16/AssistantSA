@@ -59,8 +59,6 @@ export interface server_config {
   city_events_source_url: string;
   alerts_retention_days: number;
   events_retention_days: number;
-  collection_schedule_refresh_days: number;
-  my_area_refresh_days: number;
 
   // ap-utility
   utility_retention_days: number;

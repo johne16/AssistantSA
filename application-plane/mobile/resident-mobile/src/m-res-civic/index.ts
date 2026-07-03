@@ -15,6 +15,6 @@ export type {
   civic_data,
   civic_read_response,
   civic_view_request,
-  civic_rep_update_listener,
+  civic_refresh_api_request,
   civic_client,
 } from "./types";

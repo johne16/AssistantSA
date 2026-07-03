@@ -140,8 +140,6 @@ export interface agent_request {
   params: civic_read_params;
 }
 
-// stale_refreshed signals a background re-resolution returned changed data, so
-// the client can replace what it is showing.
 export interface civic_read_response {
   resource: civic_resource;
   data:
@@ -151,7 +149,6 @@ export interface civic_read_response {
     | find_my_rep_entry
     | my_area_entry
     | null;
-  stale_refreshed?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,8 +215,6 @@ export interface civic_config {
   city_events_source_url: string;
   alerts_retention_days: number; // default 30
   events_retention_days: number; // default 30
-  collection_schedule_refresh_days: number; // default 30
-  my_area_refresh_days: number; // default 180
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +354,8 @@ export interface civic_deps {
 export interface civic_service {
   read(request: civic_read_request): Promise<civic_read_response>;
   dismiss(request: civic_dismiss_request): Promise<void>;
+  // App-open refresh of all address-derived records for the resident's address.
+  refresh_address_data(claims: tenant_context_token): Promise<void>;
   run_scheduled_fetch(source: fetch_source): Promise<void>;
 }
 
@@ -375,5 +372,6 @@ export interface civic_handler {
     entry_id: string,
     claims: tenant_context_token,
   ): Promise<void>;
+  civic_refresh(claims: tenant_context_token): Promise<void>;
   run_scheduled_fetch(source: fetch_source): Promise<void>;
 }

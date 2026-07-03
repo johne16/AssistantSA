@@ -165,7 +165,11 @@ export function create_memory_utility_store(): utility_store {
     },
     async store_outages(city, sub, list) {
       const existing = outages.get(k(city, sub)) ?? [];
-      outages.set(k(city, sub), [...existing, ...list]);
+      const incoming = new Set(list.map((o) => o.outage_id));
+      outages.set(k(city, sub), [
+        ...existing.filter((o) => !incoming.has(o.outage_id)),
+        ...list,
+      ]);
     },
     async prune_outages(city, sub, before) {
       const list = outages.get(k(city, sub)) ?? [];

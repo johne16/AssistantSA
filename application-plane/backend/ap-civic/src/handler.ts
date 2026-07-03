@@ -64,11 +64,18 @@ export function create_civic_handler(deps: civic_deps): civic_handler {
     );
   }
 
+  // Gateway path. App-open refresh of the resident's address-derived records.
+  async function civic_refresh(claims: tenant_context_token): Promise<void> {
+    return with_logging("civic_refresh", () =>
+      service.refresh_address_data(claims),
+    );
+  }
+
   async function run_scheduled_fetch(source: fetch_source): Promise<void> {
     return with_logging("run_scheduled_fetch", () =>
       service.run_scheduled_fetch(source),
     );
   }
 
-  return { civic_read, agent_request, civic_dismiss, run_scheduled_fetch };
+  return { civic_read, agent_request, civic_dismiss, civic_refresh, run_scheduled_fetch };
 }

@@ -21,9 +21,18 @@ export async function create_token_verifier(
   return {
     async verify(token: string): Promise<tenant_context_token> {
       const { payload } = await jwtVerify(token, key, { algorithms: ["RS256"] });
+      if (typeof payload.sub !== "string" || payload.sub.length === 0) {
+        throw new Error("tenant_context_token missing sub claim");
+      }
+      if (
+        typeof payload["city_tenant_id"] !== "string" ||
+        payload["city_tenant_id"].length === 0
+      ) {
+        throw new Error("tenant_context_token missing city_tenant_id claim");
+      }
       return {
-        sub: payload.sub as string,
-        city_tenant_id: payload["city_tenant_id"] as string,
+        sub: payload.sub,
+        city_tenant_id: payload["city_tenant_id"],
         iat: payload.iat as number,
         exp: payload.exp as number,
       };

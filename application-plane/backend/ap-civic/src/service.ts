@@ -20,6 +20,7 @@ import type {
   my_area_entry,
   my_area_kind,
   notify_request_type,
+  tenant_context_token,
 } from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -81,44 +82,22 @@ export function create_civic_service(deps: civic_deps): civic_service {
     }
   }
 
-  // find_my_rep: stale-while-revalidate. Return stored immediately; resolve on
-  // first request; re-resolve in background when older than the refresh window.
+  // Address-derived reads are store-only: they serve whatever the last refresh
+  // stored and never contact external sources. Fetching happens only in
+  // refresh_address_data (app open) and the scheduled warm pass.
   async function read_find_my_rep(
     tenant: string,
     address: string,
   ): Promise<civic_read_response> {
     const stored = await store.get_find_my_rep(tenant, address);
-
-    if (!stored) {
-      // First request for this address: resolve, store, return.
-      const resolved = await resolve_find_my_rep(tenant, address);
-      return { resource: "find_my_rep", data: resolved };
-    }
-
-    if (is_stale(stored.resolved_at, config.my_area_refresh_days)) {
-      // Background re-resolution; surface change if it differs.
-      void revalidate_find_my_rep(tenant, address, stored);
-    }
     return { resource: "find_my_rep", data: stored };
   }
 
-  // collection_schedule: same stale-while-revalidate as find_my_rep/my_area. The
-  // schedule is per-route, resolved by address point-in-polygon against the three
-  // commodity FeatureServers, not a city-wide bulk pull.
   async function read_collection_schedule(
     tenant: string,
     address: string,
   ): Promise<civic_read_response> {
     const stored = await store.get_collection_schedule(tenant, address);
-
-    if (stored.length === 0) {
-      const resolved = await resolve_collection_schedule(tenant, address);
-      return { resource: "collection_schedule", data: resolved };
-    }
-
-    if (is_stale(stored[0]!.fetched_at, config.collection_schedule_refresh_days)) {
-      void revalidate_collection_schedule(tenant, address, stored);
-    }
     return { resource: "collection_schedule", data: stored };
   }
 
@@ -128,16 +107,39 @@ export function create_civic_service(deps: civic_deps): civic_service {
     kind: my_area_kind,
   ): Promise<civic_read_response> {
     const stored = await store.get_my_area(tenant, address, kind);
-
-    if (!stored) {
-      const resolved = await resolve_my_area(tenant, address, kind);
-      return { resource: "my_area", data: resolved };
-    }
-
-    if (is_stale(stored.resolved_at, config.my_area_refresh_days)) {
-      void revalidate_my_area(tenant, address, kind, stored);
-    }
     return { resource: "my_area", data: stored };
+  }
+
+  // App-open refresh: resolve every address-derived record for the resident's
+  // saved address. Each resource fails independently.
+  async function refresh_address_data(
+    claims: tenant_context_token,
+  ): Promise<void> {
+    const tenant = claims.city_tenant_id;
+    const address = await data_reader.get_resident_address(tenant, claims.sub);
+    if (!address) return;
+    await resolve_address_data(tenant, address);
+  }
+
+  async function resolve_address_data(
+    tenant: string,
+    address: string,
+  ): Promise<void> {
+    const jobs: [string, () => Promise<unknown>][] = [
+      ["find_my_rep", () => resolve_find_my_rep(tenant, address)],
+      ["my_area neighborhood", () => resolve_my_area(tenant, address, "neighborhood")],
+      ["my_area school", () => resolve_my_area(tenant, address, "school")],
+      ["collection_schedule", () => resolve_collection_schedule(tenant, address)],
+    ];
+    await Promise.all(
+      jobs.map(async ([name, job]) => {
+        try {
+          await job();
+        } catch (err) {
+          console.error(`[ap-civic] resolve_address_data ${name} failed:`, err);
+        }
+      }),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -186,20 +188,6 @@ export function create_civic_service(deps: civic_deps): civic_service {
 
     await store.upsert_collection_schedule(tenant, address, entries);
     return entries;
-  }
-
-  async function revalidate_collection_schedule(
-    tenant: string,
-    address: string,
-    previous: collection_schedule_entry[],
-  ): Promise<boolean> {
-    try {
-      const fresh = await resolve_collection_schedule(tenant, address);
-      return changed_collection_schedule(previous, fresh);
-    } catch (err) {
-      console.error("[ap-civic] revalidate_collection_schedule failed:", err);
-      return false;
-    }
   }
 
   // Per-kind source: the layer url, the attribute holding the card title, and the
@@ -275,37 +263,6 @@ export function create_civic_service(deps: civic_deps): civic_service {
     return entry;
   }
 
-  // Background re-resolution; update in place. Errors are swallowed so the
-  // already-served stored read is never affected.
-  async function revalidate_find_my_rep(
-    tenant: string,
-    address: string,
-    previous: find_my_rep_entry,
-  ): Promise<boolean> {
-    try {
-      const fresh = await resolve_find_my_rep(tenant, address);
-      return changed_find_my_rep(previous, fresh);
-    } catch (err) {
-      console.error("[ap-civic] revalidate_find_my_rep failed:", err);
-      return false;
-    }
-  }
-
-  async function revalidate_my_area(
-    tenant: string,
-    address: string,
-    kind: my_area_kind,
-    previous: my_area_entry,
-  ): Promise<boolean> {
-    try {
-      const fresh = await resolve_my_area(tenant, address, kind);
-      return changed_my_area(previous, fresh);
-    } catch (err) {
-      console.error("[ap-civic] revalidate_my_area failed:", err);
-      return false;
-    }
-  }
-
   // -------------------------------------------------------------------------
   // Scheduled fetch: fetch, dedupe, store new only, prune old, notify new only.
   // -------------------------------------------------------------------------
@@ -330,14 +287,22 @@ export function create_civic_service(deps: civic_deps): civic_service {
     const tenant = current_tenant();
     const fetched_at = clock.now().toISOString();
 
-    // AHAS active-alerts page (raw HTML GET) plus structured NWS API.
-    const ahas = await gis_reader.get(config.city_alerts_source_url);
-    const nws = await gis_reader.get(config.nws_alerts_api_url);
-
-    const candidates: alert_entry[] = [
-      ...parse_alerts_html(ahas.body, "ahas", fetched_at),
-      ...parse_alerts_nws(nws.body, "nws", fetched_at),
-    ];
+    // AHAS active-alerts page (raw HTML GET) plus structured NWS API. Each
+    // source fails independently so one being down never drops the other's
+    // alerts.
+    const candidates: alert_entry[] = [];
+    try {
+      const ahas = await gis_reader.get(config.city_alerts_source_url);
+      candidates.push(...parse_alerts_html(ahas.body, "ahas", fetched_at));
+    } catch (err) {
+      console.error("[ap-civic] fetch_city_alerts AHAS fetch failed:", err);
+    }
+    try {
+      const nws = await gis_reader.get(config.nws_alerts_api_url);
+      candidates.push(...parse_alerts_nws(nws.body, "nws", fetched_at));
+    } catch (err) {
+      console.error("[ap-civic] fetch_city_alerts NWS fetch failed:", err);
+    }
 
     const known = new Set(await store.existing_entry_ids(tenant, "city_alerts"));
     const fresh = candidates.filter((e) => !known.has(e.entry_id));
@@ -396,26 +361,20 @@ export function create_civic_service(deps: civic_deps): civic_service {
     return events;
   }
 
-  // Pre-warm: re-resolve every address already known to this city so the page
-  // and assistant reads hit a fresh cache with no point-in-polygon round trip.
-  // New addresses are not known until their first lazy read seeds them.
+  // Scheduled warm: re-resolve every address-derived record for every address
+  // already known to this city, so store-only reads stay current between app
+  // opens. New addresses are seeded by the app-open refresh.
   async function warm_collection_schedule(): Promise<void> {
     const tenant = current_tenant();
     // Seed from every resident's saved address (read through the host's data
-    // layer) plus any address already resolved on demand, deduped.
+    // layer) plus any address already resolved, deduped.
     const residents = await data_reader.list_resident_addresses(tenant);
     const resolved = await store.list_resolved_addresses(tenant);
     const addresses = [...new Set([...residents.map((r) => r.address), ...resolved])];
     for (const address of addresses) {
-      try {
-        await resolve_collection_schedule(tenant, address);
-      } catch (err) {
-        // One address failing must not stop the rest of the warm pass.
-        console.error(
-          "[ap-civic] warm_collection_schedule failed for an address:",
-          err,
-        );
-      }
+      // resolve_address_data isolates per-resource failures, so one address or
+      // resource failing never stops the rest of the warm pass.
+      await resolve_address_data(tenant, address);
     }
   }
 
@@ -443,11 +402,6 @@ export function create_civic_service(deps: civic_deps): civic_service {
     });
   }
 
-  function is_stale(resolved_at: string, refresh_days: number): boolean {
-    const age = clock.now().getTime() - Date.parse(resolved_at);
-    return age > refresh_days * DAY_MS;
-  }
-
   // -------------------------------------------------------------------------
   // Writes. Per-resident alert dismissal only; the shared alert rows are never
   // mutated here.
@@ -468,7 +422,7 @@ export function create_civic_service(deps: civic_deps): civic_service {
     }
   }
 
-  return { read, dismiss, run_scheduled_fetch };
+  return { read, dismiss, refresh_address_data, run_scheduled_fetch };
 }
 
 // ---------------------------------------------------------------------------
@@ -493,15 +447,13 @@ function str(value: unknown): string {
   return value == null ? "" : String(value);
 }
 
-function changed_find_my_rep(
-  a: find_my_rep_entry,
-  b: find_my_rep_entry,
-): boolean {
+// A JSON-parsed source attribute may carry a boolean as true, 1, "true", or
+// "Yes" depending on the endpoint.
+function truthy_flag(value: unknown): boolean {
+  if (value === true || value === 1) return true;
   return (
-    a.council_district !== b.council_district ||
-    a.representative_name !== b.representative_name ||
-    a.staff.length !== b.staff.length ||
-    a.staff.some((s, i) => s.name !== b.staff[i]?.name || s.phone !== b.staff[i]?.phone)
+    typeof value === "string" &&
+    ["true", "yes", "y", "1"].includes(value.trim().toLowerCase())
   );
 }
 
@@ -550,30 +502,6 @@ function parse_council_staff(html: string): council_staff_member[] {
     });
   }
   return members;
-}
-
-function changed_my_area(a: my_area_entry, b: my_area_entry): boolean {
-  if (a.name !== b.name || a.details.length !== b.details.length) return true;
-  return a.details.some(
-    (d, i) => d.label !== b.details[i]!.label || d.value !== b.details[i]!.value,
-  );
-}
-
-function changed_collection_schedule(
-  a: collection_schedule_entry[],
-  b: collection_schedule_entry[],
-): boolean {
-  if (a.length !== b.length) {
-    return true;
-  }
-  const by_type = new Map(
-    b.map((e) => [e.service_type, `${e.collection_day}|${e.next_collection_date}`]),
-  );
-  return a.some(
-    (e) =>
-      by_type.get(e.service_type) !==
-      `${e.collection_day}|${e.next_collection_date}`,
-  );
 }
 
 // The scheduled-fetch path runs server-side with no per-user request. ap-server
@@ -833,7 +761,7 @@ function parse_collection_schedule(
 
   add("garbage", str(attributes["Garbage"]).toLowerCase(), "");
   add("recycling", str(attributes["Recycle"]).toLowerCase(), "");
-  if (attributes["isQualifyOrganics"] === true) {
+  if (truthy_flag(attributes["isQualifyOrganics"])) {
     add("organics", str(attributes["Organics"]).toLowerCase(), "");
   }
   add("brush", "", str(attributes["Brush"]));

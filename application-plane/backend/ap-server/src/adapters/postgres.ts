@@ -359,7 +359,8 @@ export function create_utility_store(pool: Pool): utility_store {
         await pool.query(
           `INSERT INTO ${s}.utility_outage (sub, outage_id, reported_at, payload)
            VALUES ($1, $2, $3, $4)
-           ON CONFLICT (sub, outage_id) DO NOTHING`,
+           ON CONFLICT (sub, outage_id) DO UPDATE
+             SET reported_at = EXCLUDED.reported_at, payload = EXCLUDED.payload`,
           [sub, o.outage_id, o.reported_at, o],
         );
       }

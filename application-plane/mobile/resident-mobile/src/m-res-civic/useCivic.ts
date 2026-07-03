@@ -1,11 +1,15 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import { useResidentSession } from "@/m-res-auth";
-import { civic_api_request, civic_dismiss_request } from "./gateway";
+import {
+  civic_api_request,
+  civic_dismiss_request,
+  civic_refresh_request,
+} from "./gateway";
 import { civic_query_keys } from "./types";
 import type { alert_entry, civic_client } from "./types";
 
@@ -20,6 +24,18 @@ const EMPTY_ALERTS: alert_entry[] = [];
 export function useCivic(): civic_client {
   const { tenant_context_token } = useResidentSession();
   const client = useQueryClient();
+
+  // App-open refresh: ask the server to resolve all address-derived civic
+  // records once per app session. Fire-and-forget; store-only reads serve
+  // whatever was last stored regardless of this call's outcome.
+  const refresh_fired = useRef(false);
+  useEffect(() => {
+    if (refresh_fired.current) return;
+    refresh_fired.current = true;
+    civic_refresh_request(tenant_context_token).catch((err) => {
+      console.error("[m-res-civic] civic refresh failed:", err);
+    });
+  }, [tenant_context_token]);
 
   const alerts_query = useQuery({
     queryKey: civic_query_keys.alerts,

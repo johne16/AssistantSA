@@ -265,7 +265,7 @@ export function SettingsScreen(props: {
         />
         <SwitchRow
           label={tr("Bill due reminders")}
-          blurb={tr("A reminder before a utility bill is due.")}
+          blurb={tr("A reminder one day before a utility bill is due.")}
           value={prefs.bills_reminder_enabled}
           onToggle={() => toggle_pref("bills_reminder_enabled")}
         />

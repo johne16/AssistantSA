@@ -56,7 +56,7 @@ export const strings_es: Record<string, string> = {
   "Event reminders": "Recordatorios de eventos",
   "A reminder before local events.": "Un recordatorio antes de eventos locales.",
   "Bill due reminders": "Recordatorios de vencimiento de facturas",
-  "A reminder before a utility bill is due.": "Un recordatorio antes de que venza una factura de servicios.",
+  "A reminder one day before a utility bill is due.": "Un recordatorio un día antes de que venza una factura de servicios.",
   "Voice": "Voz",
   "Choose the assistant's voice.": "Elige la voz del asistente.",
   "Male": "Hombre",

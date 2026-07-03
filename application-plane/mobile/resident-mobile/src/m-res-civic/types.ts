@@ -111,8 +111,6 @@ export interface civic_api_request {
   params: civic_read_params;
 }
 
-// data is the resource union; stale_refreshed signals a background
-// re-resolution returned changed find_my_rep / my_area data.
 export type civic_data =
   | alert_entry[]
   | event_entry[]
@@ -124,7 +122,12 @@ export type civic_data =
 export interface civic_read_response {
   resource: civic_resource;
   data: civic_data;
-  stale_refreshed?: boolean;
+}
+
+// POST body to the app-open refresh endpoint. Triggers server-side resolution
+// of all address-derived records for the resident's saved address.
+export interface civic_refresh_api_request {
+  tenant_context_token: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,10 +138,6 @@ export interface civic_view_request {
   resource: civic_resource;
   params: civic_read_params;
 }
-
-// Callback the portal registers to receive a background-refreshed find_my_rep
-// result when ap-civic surfaces changed rep data.
-export type civic_rep_update_listener = (response: civic_read_response) => void;
 
 // POST body to the alert dismiss endpoint. Per-resident dismiss/restore of a
 // shared alert; identified by the alert's entry_id.

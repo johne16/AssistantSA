@@ -160,8 +160,6 @@ export function load_config(): server_config {
         city_events_source_url: env_str("city_events_source_url"),
         alerts_retention_days: env_num("alerts_retention_days", 30),
         events_retention_days: env_num("events_retention_days", 30),
-        collection_schedule_refresh_days: env_num("collection_schedule_refresh_days", 30),
-        my_area_refresh_days: env_num("my_area_refresh_days", 180),
 
         utility_retention_days: env_num("utility_retention_days", 30),
         power_outage_source_url: env_str("power_outage_source_url"),

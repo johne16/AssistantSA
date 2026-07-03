@@ -13,19 +13,18 @@
 
 ## ap-civic
 
-- [ ] 9. `ap-civic/src/service.ts:100,120,138` - revalidation change-detection result is discarded; `stale_refreshed` is never set on any response.
-- [ ] 10. `ap-civic/src/service.ts:98` - find_my_rep staleness uses `my_area_refresh_days`; rep changes go unrefreshed for 180 days.
-- [ ] 11. `ap-civic/src/service.ts:334-335` - AHAS and NWS fetches share one failure domain; either failing drops all alerts from both.
-- [ ] 12. `ap-civic/src/service.ts:569-576` - `changed_collection_schedule` Map keyed on `service_type` silently drops duplicate types, missing changes.
-- [ ] 13. `ap-civic/src/service.ts:836` - strict `=== true` on ArcGIS `isQualifyOrganics`; `"true"` or `1` drops the organics row.
+- [x] 9. `ap-civic/src/service.ts:100,120,138` - resolved by redesign: address-derived reads are store-only; fetching happens at app open (`POST /civic/refresh`) and in the scheduled warm pass. `stale_refreshed` and the stale-while-revalidate machinery removed.
+- [x] 11. `ap-civic/src/service.ts:334-335` - AHAS and NWS fetches share one failure domain; either failing drops all alerts from both.
+- [x] 12. `ap-civic/src/service.ts:569-576` - not a bug; the parser emits one row per service type. Updated the stale point-in-polygon comment on `read_collection_schedule` instead.
+- [x] 13. `ap-civic/src/service.ts:836` - strict `=== true` on ArcGIS `isQualifyOrganics`; `"true"` or `1` drops the organics row.
 
 ## ap-utility
 
-- [ ] 14. `ap-utility/src/service.ts:127-138` - one failing address aborts the whole outage fetch pass.
-- [ ] 15. `ap-utility/src/service.ts:100-101` - outage dedupe on `outage_id` only; status changes ("reported" to "restored") never stored or notified.
-- [ ] 16. `ap-utility/src/service.ts:183-203` - no sent-reminder tracking; duplicate bill_due notifications every scheduler run.
-- [ ] 17. `ap-utility/src/service.ts:42-46,191` - `due_date` parsed as UTC midnight vs local now; bills due today are skipped in timezones west of UTC.
-- [ ] 18. `ap-utility/src/index.ts:24-29` - token verifier casts `sub` and `city_tenant_id` without presence checks; missing claim scopes data under tenant `undefined`.
+- [x] 14. `ap-utility/src/service.ts:127-138` - one failing address aborts the whole outage fetch pass.
+- [x] 15. `ap-utility/src/service.ts:100-101` - outage dedupe on `outage_id` only; status changes ("reported" to "restored") never stored or notified.
+- [x] 16. `ap-utility/src/service.ts:183-203` - no sent-reminder tracking; duplicate bill_due notifications every scheduler run.
+- [x] 17. `ap-utility/src/service.ts:42-46,191` - `due_date` parsed as UTC midnight vs local now; bills due today are skipped in timezones west of UTC.
+- [x] 18. `ap-utility/src/index.ts:24-29` - token verifier casts `sub` and `city_tenant_id` without presence checks; missing claim scopes data under tenant `undefined`.
 
 ## ap-voice (Rust)
 
