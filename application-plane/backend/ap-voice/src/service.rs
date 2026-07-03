@@ -1,7 +1,7 @@
 //! Voice service: ports (traits) plus concrete Deepgram/ElevenLabs/assistant
 //! providers and the pump/worker turn loop. Latency-sensitive duplex path.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -55,21 +55,26 @@ pub trait Tts: Send + Sync {
 
 // ---- Shared abort flag for barge-in ----
 
+/// Monotonic barge-in generation counter. Each turn snapshots the generation
+/// when its transcript is enqueued; a barge-in increments it, aborting every
+/// turn enqueued before the interruption (including queued-but-unplayed ones)
+/// while leaving turns from the interrupting speech untouched. No reset, so a
+/// late barge_in can never race a turn-start reset and be lost.
 #[derive(Clone, Default)]
-pub struct AbortSignal(Arc<AtomicBool>);
+pub struct AbortSignal(Arc<AtomicU64>);
 
 impl AbortSignal {
     pub fn new() -> Self {
-        Self(Arc::new(AtomicBool::new(false)))
+        Self(Arc::new(AtomicU64::new(0)))
     }
     pub fn raise(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        self.0.fetch_add(1, Ordering::SeqCst);
     }
-    pub fn reset(&self) {
-        self.0.store(false, Ordering::SeqCst);
-    }
-    pub fn is_raised(&self) -> bool {
+    pub fn generation(&self) -> u64 {
         self.0.load(Ordering::SeqCst)
+    }
+    pub fn is_raised_since(&self, generation: u64) -> bool {
+        self.generation() > generation
     }
 }
 
@@ -133,6 +138,16 @@ async fn deepgram_loop(
         endpointing=false&utterance_end_ms={utterance_end_ms}&model=nova-3&language=en-US"
     );
     let url = url.as_str();
+    // Trim so a trailing newline in the injected key cannot make an invalid
+    // header value; a still-invalid key ends the loop instead of panicking.
+    let auth: tokio_tungstenite::tungstenite::http::HeaderValue =
+        match format!("Token {}", api_key.trim()).parse() {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[ap-voice] deepgram api key is not a valid header value: {e}");
+                return;
+            }
+        };
     let mut attempts = 0u32;
     loop {
         let mut req = match url.into_client_request() {
@@ -142,8 +157,7 @@ async fn deepgram_loop(
                 return;
             }
         };
-        req.headers_mut()
-            .insert("Authorization", format!("Token {api_key}").parse().unwrap());
+        req.headers_mut().insert("Authorization", auth.clone());
 
         let ws = match connect_async(req).await {
             Ok((ws, _)) => ws,
@@ -153,10 +167,11 @@ async fn deepgram_loop(
                 if attempts > DEEPGRAM_MAX_RECONNECT {
                     return;
                 }
+                tokio::time::sleep(std::time::Duration::from_millis(500 * attempts as u64)).await;
                 continue;
             }
         };
-        attempts = 0;
+        let connected_at = Instant::now();
         let (mut sink, mut stream) = ws.split();
 
         loop {
@@ -203,7 +218,19 @@ async fn deepgram_loop(
                 }
             }
         }
-        // fell through: reconnect (bounded by attempts at top)
+        // fell through: reconnect. Only a connection that stayed up counts as
+        // recovery; connect-then-drop draws from the same bounded budget as
+        // connect failures so a flapping upstream cannot loop forever.
+        if connected_at.elapsed() >= std::time::Duration::from_secs(10) {
+            attempts = 0;
+        } else {
+            attempts += 1;
+            if attempts > DEEPGRAM_MAX_RECONNECT {
+                eprintln!("[ap-voice] deepgram dropped {attempts} times in a row; giving up");
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500 * attempts as u64)).await;
+        }
     }
 }
 
@@ -235,7 +262,9 @@ impl ElevenLabsTts {
         let client = reqwest::Client::builder()
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .connect_timeout(std::time::Duration::from_secs(5))
-            .timeout(std::time::Duration::from_secs(30))
+            // Per-read stall timeout, not a total deadline: a long streamed TTS
+            // body must never be cut mid-sentence just for being long.
+            .read_timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("reqwest client");
         Self {
@@ -344,7 +373,14 @@ impl AssistantClient for AssistantWsClient {
                     Ok(Message::Text(txt)) => {
                         if let Ok(frame) = serde_json::from_str::<AssistantToken>(&txt) {
                             match frame.kind.as_deref() {
-                                Some("done") | Some("error") => break,
+                                Some("done") => break,
+                                Some("error") => {
+                                    let msg = frame
+                                        .text
+                                        .unwrap_or_else(|| "assistant reported an error".to_string());
+                                    let _ = tx.send(Err(VoiceError::Assistant(msg))).await;
+                                    break;
+                                }
                                 Some("reminder") => {
                                     let payload = ReminderPayload {
                                         title: frame.title.unwrap_or_default(),
@@ -397,7 +433,9 @@ pub struct VoiceSession {
     /// barge-in truth (it owns the AEC'd input level), so the server never
     /// infers barge-in from interim transcripts.
     pub abort: AbortSignal,
-    pub latency: LatencyTracker,
+    /// Shared with the worker task so per-turn stage timings recorded inside
+    /// run_turn land in the session tracker.
+    pub latency: Arc<std::sync::Mutex<LatencyTracker>>,
 }
 
 impl VoiceSession {
@@ -418,7 +456,7 @@ impl VoiceSession {
             config,
             tenant_context_token,
             abort,
-            latency: LatencyTracker::default(),
+            latency: Arc::new(std::sync::Mutex::new(LatencyTracker::default())),
         }
     }
 
@@ -426,7 +464,9 @@ impl VoiceSession {
     /// turn. Barge-in is driven by the client, not by interim transcripts here.
     /// Runs until STT ends.
     pub async fn run(&mut self) {
-        let (turn_tx, mut turn_rx) = mpsc::unbounded_channel::<String>();
+        // Each queued turn carries the barge-in generation at enqueue time; a
+        // barge-in aborts every turn from an older generation.
+        let (turn_tx, mut turn_rx) = mpsc::unbounded_channel::<(String, u64)>();
         let abort = self.abort.clone();
 
         // Worker: one turn at a time.
@@ -435,15 +475,28 @@ impl VoiceSession {
         let sink = self.sink.clone();
         let config = self.config.clone();
         let token = self.tenant_context_token.clone();
+        let latency = self.latency.clone();
         let worker_abort = abort.clone();
         let worker = tokio::spawn(async move {
-            while let Some(transcript) = turn_rx.recv().await {
-                worker_abort.reset();
+            while let Some((transcript, turn_generation)) = turn_rx.recv().await {
+                // Queued before a barge-in that already landed: skip it.
+                if worker_abort.is_raised_since(turn_generation) {
+                    continue;
+                }
                 // Barge-in is normal turn cancellation, not an error; only real
                 // provider/stream failures are logged.
-                if let Err(e) =
-                    run_turn(&assistant, &tts, &sink, &config, &worker_abort, &token, transcript)
-                        .await
+                if let Err(e) = run_turn(
+                    &assistant,
+                    &tts,
+                    &sink,
+                    &config,
+                    &worker_abort,
+                    turn_generation,
+                    &latency,
+                    &token,
+                    transcript,
+                )
+                .await
                 {
                     if !matches!(e, VoiceError::BargeIn) {
                         eprintln!("[ap-voice] turn failed: {e}");
@@ -505,7 +558,7 @@ impl VoiceSession {
                                 is_final: true,
                             })
                             .await;
-                        let _ = turn_tx.send(text);
+                        let _ = turn_tx.send((text, self.abort.generation()));
                     }
                 }
             }
@@ -524,6 +577,8 @@ async fn run_turn(
     sink: &Arc<dyn ResponseSink>,
     config: &VoiceConfig,
     abort: &AbortSignal,
+    turn_generation: u64,
+    latency: &Arc<std::sync::Mutex<LatencyTracker>>,
     tenant_context_token: &str,
     transcript: String,
 ) -> Result<(), VoiceError> {
@@ -548,45 +603,76 @@ async fn run_turn(
         tts.clone(),
         sink.clone(),
         abort.clone(),
+        turn_generation,
         first_audio.clone(),
     );
 
-    let mut streamer = SentenceStreamer::new(24);
     let mut reply_text = String::new();
-    let mut tts_total_ms: u128 = 0;
 
-    while let Some(item) = tokens.recv().await {
-        if abort.is_raised() {
-            filler_handle.abort();
-            return Err(VoiceError::BargeIn);
-        }
-        match item? {
-            AssistantEvent::Reminder(payload) => {
-                // Forward the reminder to the client as a text frame; it is not
-                // spoken, so it never enters the TTS path.
-                let _ = sink.send(ResponseEvent::Reminder(payload)).await;
+    // The streaming body runs in an inner block so every exit path, error or
+    // not, falls through to the filler abort below; otherwise a turn that dies
+    // mid-stream leaves the filler speaking into a dead turn.
+    let streamed: Result<(u128, Option<u128>), VoiceError> = async {
+        let mut streamer = SentenceStreamer::new(24);
+        let mut tts_total_ms: u128 = 0;
+        let mut assistant_first_token_ms: Option<u128> = None;
+
+        while let Some(item) = tokens.recv().await {
+            if abort.is_raised_since(turn_generation) {
+                return Err(VoiceError::BargeIn);
             }
-            AssistantEvent::Token(token) => {
-                reply_text.push_str(&token);
-                for sentence in streamer.push(&token) {
-                    tts_total_ms += stream_sentence(
-                        tts, sink, abort, &first_audio, &filler_handle, &sentence,
-                    )
-                    .await?;
+            match item? {
+                AssistantEvent::Reminder(payload) => {
+                    // Forward the reminder to the client as a text frame; it is not
+                    // spoken, so it never enters the TTS path.
+                    let _ = sink.send(ResponseEvent::Reminder(payload)).await;
+                }
+                AssistantEvent::Token(token) => {
+                    if assistant_first_token_ms.is_none() {
+                        assistant_first_token_ms = Some(assistant_start.elapsed().as_millis());
+                    }
+                    reply_text.push_str(&token);
+                    for sentence in streamer.push(&token) {
+                        tts_total_ms += stream_sentence(
+                            tts,
+                            sink,
+                            abort,
+                            turn_generation,
+                            &first_audio,
+                            &filler_handle,
+                            &sentence,
+                        )
+                        .await?;
+                    }
                 }
             }
         }
+        if let Some(tail) = streamer.flush() {
+            tts_total_ms += stream_sentence(
+                tts,
+                sink,
+                abort,
+                turn_generation,
+                &first_audio,
+                &filler_handle,
+                &tail,
+            )
+            .await?;
+        }
+        Ok((tts_total_ms, assistant_first_token_ms))
     }
-    if let Some(tail) = streamer.flush() {
-        tts_total_ms += stream_sentence(
-            tts, sink, abort, &first_audio, &filler_handle, &tail,
-        )
-        .await?;
-    }
-    let _ = assistant_start;
-    let _ = tts_total_ms;
+    .await;
 
     filler_handle.abort();
+    let (tts_total_ms, assistant_first_token_ms) = streamed?;
+
+    if let Ok(mut tracker) = latency.lock() {
+        if let Some(ms) = assistant_first_token_ms {
+            tracker.record(Stage::Assistant, ms);
+        }
+        tracker.record(Stage::Tts, tts_total_ms);
+    }
+
     // Emit assistant transcript so the shared chat thread shows the spoken turn.
     let _ = sink
         .send(ResponseEvent::AssistantTranscript(reply_text))
@@ -605,6 +691,7 @@ async fn stream_sentence(
     tts: &Arc<dyn Tts>,
     sink: &Arc<dyn ResponseSink>,
     abort: &AbortSignal,
+    turn_generation: u64,
     first_audio: &Arc<AtomicBool>,
     filler_handle: &tokio::task::JoinHandle<()>,
     sentence: &str,
@@ -616,13 +703,13 @@ async fn stream_sentence(
     // chunks (which can split mid-sample) until a full unit is available.
     let mut carry: Vec<u8> = Vec::new();
     while let Some(chunk) = chunks.recv().await {
-        if abort.is_raised() {
+        if abort.is_raised_since(turn_generation) {
             // Unwind: drop queued audio for this turn.
             return Err(VoiceError::BargeIn);
         }
         carry.extend_from_slice(&chunk?);
         while carry.len() >= PCM_CHUNK_BYTES {
-            if abort.is_raised() {
+            if abort.is_raised_since(turn_generation) {
                 return Err(VoiceError::BargeIn);
             }
             let unit: Vec<u8> = carry.drain(..PCM_CHUNK_BYTES).collect();
@@ -635,7 +722,7 @@ async fn stream_sentence(
     }
     // Flush the sentence tail (whole samples; total pcm length is even).
     if !carry.is_empty() {
-        if abort.is_raised() {
+        if abort.is_raised_since(turn_generation) {
             return Err(VoiceError::BargeIn);
         }
         if !first_audio.swap(true, Ordering::SeqCst) {
@@ -653,11 +740,12 @@ fn spawn_filler(
     tts: Arc<dyn Tts>,
     sink: Arc<dyn ResponseSink>,
     abort: AbortSignal,
+    turn_generation: u64,
     first_audio: Arc<AtomicBool>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tokio::time::sleep(config.filler_delay()).await;
-        if first_audio.load(Ordering::SeqCst) || abort.is_raised() {
+        if first_audio.load(Ordering::SeqCst) || abort.is_raised_since(turn_generation) {
             return;
         }
         let mut pool = FillerPool::new(false);
@@ -673,20 +761,20 @@ fn spawn_filler(
         // provider chunks until a whole-sample unit is available.
         let mut carry: Vec<u8> = Vec::new();
         while let Some(chunk) = chunks.recv().await {
-            if first_audio.load(Ordering::SeqCst) || abort.is_raised() {
+            if first_audio.load(Ordering::SeqCst) || abort.is_raised_since(turn_generation) {
                 return;
             }
             let Ok(bytes) = chunk else { return };
             carry.extend_from_slice(&bytes);
             while carry.len() >= PCM_CHUNK_BYTES {
-                if first_audio.load(Ordering::SeqCst) || abort.is_raised() {
+                if first_audio.load(Ordering::SeqCst) || abort.is_raised_since(turn_generation) {
                     return;
                 }
                 let unit: Vec<u8> = carry.drain(..PCM_CHUNK_BYTES).collect();
                 let _ = sink.send(ResponseEvent::AudioChunk(unit)).await;
             }
         }
-        if carry.is_empty() || first_audio.load(Ordering::SeqCst) || abort.is_raised() {
+        if carry.is_empty() || first_audio.load(Ordering::SeqCst) || abort.is_raised_since(turn_generation) {
             return;
         }
         let _ = sink.send(ResponseEvent::AudioChunk(carry)).await;

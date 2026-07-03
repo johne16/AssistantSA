@@ -258,10 +258,42 @@ impl SentenceStreamer {
     }
 
     fn find_boundary(&self) -> Option<usize> {
-        self.buf
-            .char_indices()
-            .find(|(_, c)| matches!(c, '.' | '!' | '?'))
-            .map(|(i, c)| i + c.len_utf8() - 1)
+        let mut iter = self.buf.char_indices().peekable();
+        while let Some((i, c)) = iter.next() {
+            if !matches!(c, '.' | '!' | '?') {
+                continue;
+            }
+            // A terminator at the buffer end is undecidable mid-stream (the next
+            // token may continue "$128." into "$128.45"); flush() emits it at
+            // end of turn.
+            let Some(&(_, next)) = iter.peek() else {
+                return None;
+            };
+            // Not a boundary unless followed by whitespace: keeps "$128.45",
+            // "e.g.", URLs, and version numbers intact.
+            if !next.is_whitespace() {
+                continue;
+            }
+            // "." after a known abbreviation ("Aug. 15") is not a boundary.
+            if c == '.' && Self::ends_with_abbreviation(&self.buf[..i]) {
+                continue;
+            }
+            return Some(i);
+        }
+        None
+    }
+
+    /// Abbreviations that a "." never terminates a sentence after.
+    fn ends_with_abbreviation(text: &str) -> bool {
+        const ABBREVIATIONS: &[&str] = &[
+            "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Sept", "Oct", "Nov", "Dec",
+            "Mr", "Mrs", "Ms", "Dr", "St", "vs", "No",
+        ];
+        let last_word = text
+            .rsplit(|c: char| c.is_whitespace())
+            .next()
+            .unwrap_or("");
+        ABBREVIATIONS.iter().any(|a| last_word.eq_ignore_ascii_case(a))
     }
 }
 

@@ -28,14 +28,14 @@
 
 ## ap-voice (Rust)
 
-- [ ] 19. `ap-voice/src/service.rs:563,571-584` - filler task not aborted on turn error; "one moment please" plays into a dead turn.
-- [ ] 20. `ap-voice/src/service.rs:347` - assistant `"error"` frame handled like `"done"`; truncated reply presented as complete.
-- [ ] 21. `ap-voice/src/service.rs:146` - `HeaderValue::parse().unwrap()` on the Deepgram key panics on a trailing newline; session dies silently.
-- [ ] 22. `ap-voice/src/service.rs:159` - reconnect counter resets on every successful connect; connect-then-drop loops forever with no backoff.
-- [ ] 23. `ap-voice/src/types.rs:260-265` - sentence boundary fires on any `.`, splitting "$128.45" and "Aug." mid-number for TTS.
-- [ ] 24. `ap-voice/src/service.rs:437-452` + `ap-voice/src/main.rs:263-287` - barge-in flag reset at turn start races a late barge_in; next queued turn plays anyway.
-- [ ] 25. `ap-voice/src/service.rs:239` - reqwest 30s timeout covers the whole streamed TTS body; long streams cut mid-sentence.
-- [ ] 26. `ap-voice/src/service.rs:586-587` - latency values computed and discarded; `LatencyTracker::record` never called, `percentiles()` always `None`.
+- [x] 19. `ap-voice/src/service.rs:563,571-584` - filler task not aborted on turn error; "one moment please" plays into a dead turn.
+- [x] 20. `ap-voice/src/service.rs:347` - assistant `"error"` frame handled like `"done"`; truncated reply presented as complete.
+- [x] 21. `ap-voice/src/service.rs:146` - `HeaderValue::parse().unwrap()` on the Deepgram key panics on a trailing newline; session dies silently.
+- [x] 22. `ap-voice/src/service.rs:159` - reconnect counter resets on every successful connect; connect-then-drop loops forever with no backoff.
+- [x] 23. `ap-voice/src/types.rs:260-265` - sentence boundary fires on any `.`, splitting "$128.45" and "Aug." mid-number for TTS.
+- [x] 24. `ap-voice/src/service.rs:437-452` + `ap-voice/src/main.rs:263-287` - barge-in flag reset at turn start races a late barge_in; next queued turn plays anyway.
+- [x] 25. `ap-voice/src/service.rs:239` - reqwest 30s timeout covers the whole streamed TTS body; long streams cut mid-sentence.
+- [x] 26. `ap-voice/src/service.rs:586-587` - latency values computed and discarded; `LatencyTracker::record` never called, `percentiles()` always `None`.
 
 ## crawl-service (Python)
 
