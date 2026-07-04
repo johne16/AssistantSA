@@ -57,6 +57,9 @@ function build_injection(job: scrape_job): string {
   }
   try {
     var __creds = ${creds_json};
+    // Progress logging back to the native console via the same message channel.
+    window.__log = function (msg) { post({ ok: false, log: String(msg) }); };
+    window.__log("injected at " + location.href + " step_state=" + JSON.stringify(window.name || ""));
     // Helper exposed to the site script: set a field value without focus so the
     // keyboard does not pop on the hidden WebView.
     window.__set_value = function (el, value) {
@@ -139,6 +142,13 @@ export const ScrapeRunner = forwardRef<scrape_runner_handle>((_props, ref) => {
       } catch {
         msg = { ok: false, error: "malformed scrape message" };
       }
+      if (msg.log !== undefined) {
+        console.log(`[scrape ${active.job.site_id}] ${msg.log}`);
+        return;
+      }
+      console.log(
+        `[scrape ${active.job.site_id}] result: ${event.nativeEvent.data}`,
+      );
       active.resolve(msg);
     },
     [jobs],
@@ -153,9 +163,22 @@ export const ScrapeRunner = forwardRef<scrape_runner_handle>((_props, ref) => {
           originWhitelist={["*"]}
           injectedJavaScript={build_injection(active.job)}
           onMessage={(e) => on_message(active.id, e)}
-          onError={() =>
-            active.reject(new Error("webview load error"))
+          onLoadStart={(e) =>
+            console.log(
+              `[scrape ${active.job.site_id}] load start: ${e.nativeEvent.url}`,
+            )
           }
+          onLoadEnd={(e) =>
+            console.log(
+              `[scrape ${active.job.site_id}] load end: ${e.nativeEvent.url}`,
+            )
+          }
+          onError={(e) => {
+            console.log(
+              `[scrape ${active.job.site_id}] webview error: ${e.nativeEvent.description}`,
+            );
+            active.reject(new Error("webview load error"));
+          }}
           javaScriptEnabled
           domStorageEnabled
           // Keep the hidden WebView from grabbing the keyboard.

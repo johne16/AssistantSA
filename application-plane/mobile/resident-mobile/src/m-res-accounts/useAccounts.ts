@@ -260,12 +260,16 @@ export function useAccounts(
   const run_site = useCallback(
     async (site_id: string): Promise<sync_result> => {
       emit({ site_id, sync_status: "syncing" });
+      console.log(`[scrape ${site_id}] sync start`);
       try {
         const creds = await read_credentials(site_id);
         if (!creds) throw new Error("no linked credentials");
         if (!runner.current) throw new Error("scrape runner not mounted");
 
         const entry = await fetch_site_script(site_id);
+        console.log(
+          `[scrape ${site_id}] script fetched (${entry.script.length} chars), url=${entry.url}`,
+        );
         const job: scrape_job = {
           site_id,
           url: entry.url,
@@ -275,6 +279,9 @@ export function useAccounts(
         const scraped = await runner.current.run(job);
         const bills = scraped.bills as unknown as bill_view[];
         const usage = scraped.usage as unknown as usage_view[];
+        console.log(
+          `[scrape ${site_id}] scrape done: ${bills.length} bills, ${usage.length} usage`,
+        );
         await push_bills(site_id, bills, usage);
 
         const result: sync_result = {
@@ -285,6 +292,7 @@ export function useAccounts(
         emit(result);
         return result;
       } catch (e) {
+        console.log(`[scrape ${site_id}] sync error: ${String(e)}`);
         const result: sync_result = {
           site_id,
           sync_status: "error",

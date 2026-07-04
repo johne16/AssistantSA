@@ -155,12 +155,14 @@ export interface sync_result {
 
 // --- Internal scrape-runner messaging ---
 
-// Result posted back from the injected script via postMessage.
+// Result posted back from the injected script via postMessage. A message with
+// log set is a progress line for the console, not a result.
 export interface scrape_message {
   ok: boolean;
   bills?: bill_view[];
   usage?: usage_view[];
   error?: string;
+  log?: string;
 }
 
 // A scrape job handed to the off-screen WebView host.

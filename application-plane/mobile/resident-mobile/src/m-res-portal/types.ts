@@ -59,6 +59,8 @@ export interface provider_option {
 export const PROVIDER_CATALOG: provider_option[] = [
   { site_id: "cps", provider: "CPS Energy" },
   { site_id: "att", provider: "AT&T" },
+  { site_id: "herokuapp", provider: "Test: herokuapp" },
+  { site_id: "toscrape_js", provider: "Test: quotes.toscrape.com/js" },
 ];
 
 // Resident profile entered in Settings, owned by the portal. Empty strings until
