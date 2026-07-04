@@ -186,8 +186,19 @@ export function useAccounts(
       });
       if (!res.ok) throw new Error(`accounts-link ${res.status}`);
     },
-    onSuccess: () =>
-      client.invalidateQueries({ queryKey: accounts_query_keys.linked }),
+    // Write the linked account into the query cache immediately, then refetch.
+    // invalidateQueries restarts any in-flight fetch, so a refetch started
+    // before the link cannot land afterward with the pre-link list.
+    onSuccess: (_data, account) => {
+      client.setQueryData<linked_account[]>(
+        accounts_query_keys.linked,
+        (prev = []) =>
+          prev.some((a) => a.site_id === account.site_id)
+            ? prev
+            : [...prev, account],
+      );
+      void client.invalidateQueries({ queryKey: accounts_query_keys.linked });
+    },
   });
 
   const unlink_mutation = useMutation({
@@ -201,8 +212,13 @@ export function useAccounts(
       if (!res.ok) throw new Error(`accounts-unlink ${res.status}`);
       await delete_credentials(site_id);
     },
-    onSuccess: () =>
-      client.invalidateQueries({ queryKey: accounts_query_keys.linked }),
+    onSuccess: (_data, site_id) => {
+      client.setQueryData<linked_account[]>(
+        accounts_query_keys.linked,
+        (prev = []) => prev.filter((a) => a.site_id !== site_id),
+      );
+      void client.invalidateQueries({ queryKey: accounts_query_keys.linked });
+    },
   });
 
   const save_profile_mutation = useMutation({

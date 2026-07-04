@@ -123,7 +123,9 @@ export function Portal() {
   }, [profile.lang, set_lang]);
 
   // --- linked accounts + per-account sync UI state ---
-  const [linked, set_linked] = useState<linked_account[]>([]);
+  // The React Query cache in m-res-accounts is the single source of truth for
+  // linked accounts; link/unlink mutations update it directly.
+  const linked = accounts.linked;
   const in_flight = useRef<Set<string>>(new Set());
 
   // --- preference toggles ---
@@ -181,8 +183,14 @@ export function Portal() {
     .sort()
     .join(",");
   useEffect(() => {
-    if (linked_key.length === 0 || in_flight.current.size > 0) return;
-    void accounts.sync_all(linked_key.split(","));
+    if (linked_key.length === 0) return;
+    // Skip only the sites already in flight, so linking a second account while
+    // the first is still syncing still scrapes the new one.
+    const site_ids = linked_key
+      .split(",")
+      .filter((id) => !in_flight.current.has(id));
+    if (site_ids.length === 0) return;
+    void accounts.sync_all(site_ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linked_key]);
 
@@ -331,11 +339,6 @@ export function Portal() {
       } catch {
         return false;
       }
-      set_linked((prev) =>
-        prev.some((a) => a.site_id === account.site_id)
-          ? prev
-          : [...prev, account],
-      );
       return true;
     },
     [accounts],
@@ -347,13 +350,14 @@ export function Portal() {
       } catch {
         return false;
       }
-      set_linked((prev) => prev.filter((a) => a.site_id !== site_id));
       return true;
     },
     [accounts],
   );
 
-  // Persist the resident profile and keep local state in sync.
+  // Persist the resident profile. `profile` is the live form state, so nothing
+  // is written back here: writing the press-time snapshot after the await would
+  // wipe edits typed during the save.
   const on_save_profile = useCallback(
     async (next: resident_profile) => {
       try {
@@ -361,17 +365,27 @@ export function Portal() {
       } catch {
         return false;
       }
-      set_profile(next);
       return true;
     },
     [accounts],
   );
 
-  // Mirror the linked-accounts query into local state (screens and the optimistic
-  // link/unlink handlers read/edit `linked`).
-  useEffect(() => {
-    set_linked(accounts.linked);
-  }, [accounts.linked]);
+  // Language switch: flip profile.lang optimistically (the lang-sync effect
+  // above applies it to the app), await the save, and revert only `lang` on
+  // failure so edits typed during the save are kept.
+  const on_lang_change = useCallback(
+    async (next_lang: "en" | "es") => {
+      const prev_lang = profile.lang;
+      const next = { ...profile, lang: next_lang };
+      set_profile(next);
+      try {
+        await accounts.save_profile(next);
+      } catch {
+        set_profile((p) => ({ ...p, lang: prev_lang }));
+      }
+    },
+    [accounts, profile],
+  );
 
   // Seed the profile form once, so a later refetch does not clobber edits.
   const profile_loaded = useRef(false);
@@ -425,6 +439,7 @@ export function Portal() {
             profile={profile}
             on_change_profile={set_profile}
             on_save_profile={on_save_profile}
+            on_lang_change={on_lang_change}
             prefs={prefs}
             on_prefs_change={on_prefs_change}
             voice_id={voice_id}

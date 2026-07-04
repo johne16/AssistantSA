@@ -89,6 +89,7 @@ export function SettingsScreen(props: {
   profile: resident_profile;
   on_change_profile: (profile: resident_profile) => void;
   on_save_profile: (profile: resident_profile) => Promise<boolean>;
+  on_lang_change: (lang: "en" | "es") => Promise<void>;
   prefs: notification_preferences;
   on_prefs_change: (prefs: notification_preferences) => void;
   voice_id: string;
@@ -123,8 +124,9 @@ export function SettingsScreen(props: {
     const next_pool = [...next_voices.male, ...next_voices.female];
     const idx = voice_pool.findIndex((v) => v.id === props.voice_id);
     if (idx >= 0 && next_pool[idx]) props.on_voice_id_change(next_pool[idx]);
-    app_lang.set_lang(next);
-    void props.on_save_profile({ ...profile, lang: next });
+    // The portal flips profile.lang optimistically (which drives the app
+    // language), awaits the save, and reverts the language on failure.
+    void props.on_lang_change(next);
   }
 
   const group = {

@@ -1,5 +1,4 @@
-// m-res-shell owns its type definitions: the theme token shapes, the resolved
-// city identity, and the app-launch input.
+// m-res-shell owns its type definitions: the theme token shapes.
 
 // Color tokens for one theme. Names match the design system in the UI mockup.
 export interface color_tokens {
@@ -66,21 +65,4 @@ export interface theme {
   spacing: spacing_tokens;
   radius: radius_tokens;
   font: font_tokens;
-}
-
-// appLaunch input: the subdomain or parameters that identify the city, resolved
-// before login.
-export interface app_launch {
-  subdomain: string | null;
-  parameters: Record<string, string>;
-}
-
-// The city identity resolved from the subdomain against tenant_base_domain.
-export interface city_identity {
-  city_tenant_id: string;
-  subdomain: string | null;
-}
-
-export interface shell_config {
-  tenant_base_domain: string;
 }

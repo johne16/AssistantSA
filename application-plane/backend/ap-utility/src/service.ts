@@ -40,7 +40,7 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
 
   // Calendar days between two dates in local time, target minus reference.
   function days_until(target_iso: string, ref: Date): number {
-    const [y, m, d] = target_iso.slice(0, 10).split("-").map(Number);
+    const [y, m, d] = target_iso.slice(0, 10).split("-").map(Number) as [number, number, number];
     const target = new Date(y, m - 1, d);
     const ref_day = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
     return Math.round((target.getTime() - ref_day.getTime()) / 86_400_000);

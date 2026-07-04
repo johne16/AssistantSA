@@ -37,18 +37,13 @@
 - [x] 25. `ap-voice/src/service.rs:239` - reqwest 30s timeout covers the whole streamed TTS body; long streams cut mid-sentence.
 - [x] 26. `ap-voice/src/service.rs:586-587` - latency values computed and discarded; `LatencyTracker::record` never called, `percentiles()` always `None`.
 
-## crawl-service (Python)
-
-- [ ] 27. `crawl-service/crawl_service.py:50-51` - no try/except around `crawler.arun`; raised failures return a 500 instead of `{success: false}`.
-- [ ] 28. `crawl-service/crawl_service.py:51` - `result.markdown.raw_markdown` assumes markdown is non-None on success; AttributeError causes a 500.
-
 ## mobile: shell/portal
 
-- [ ] 29. `m-res-portal/Portal.tsx:183-187` - initial-sync effect bails when anything is in flight and never re-fires; a second linked account is never scraped until background/foreground.
-- [ ] 30. `m-res-portal/Portal.tsx:372-374` - mirror effect clobbers optimistic `linked` state; just-linked account vanishes on the next stale refetch.
-- [ ] 31. `m-res-portal/Portal.tsx:357-368` - `on_save_profile` writes the press-time snapshot after await, wiping edits typed during the save.
-- [ ] 32. `m-res-portal/screens/settings.tsx:126-127` + `m-res-portal/Portal.tsx:121-123` - language switch persists fire-and-forget; a failed save later flips the app back to English via a stale snapshot.
-- [ ] 33. `m-res-shell/Shell.tsx:35-38` - `resolve_city` result computed and discarded; city resolution affects nothing.
+- [x] 29. `m-res-portal/Portal.tsx:183-187` - initial-sync effect bails when anything is in flight and never re-fires; a second linked account is never scraped until background/foreground.
+- [x] 30. `m-res-portal/Portal.tsx:372-374` - mirror effect clobbers optimistic `linked` state; just-linked account vanishes on the next stale refetch.
+- [x] 31. `m-res-portal/Portal.tsx:357-368` - `on_save_profile` writes the press-time snapshot after await, wiping edits typed during the save.
+- [x] 32. `m-res-portal/screens/settings.tsx:126-127` + `m-res-portal/Portal.tsx:121-123` - language switch persists fire-and-forget; a failed save later flips the app back to English via a stale snapshot.
+- [x] 33. `m-res-shell/Shell.tsx:35-38` - `resolve_city` result computed and discarded; city resolution affects nothing.
 
 ## mobile: assistant/accounts
 

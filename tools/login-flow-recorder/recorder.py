@@ -447,7 +447,7 @@ function set_step(i) {{
 
 // Run one recorded navigation step. Resolves "continue" to keep stepping in this
 // same load, or "navigated" when a page load follows (wait for re-injection).
-function run_step(step, creds) {{
+function run_step(step, creds, idx) {{
   if (step.type === "fill_credential") {{
     return wait_el(step.descriptor).then(function (el) {{
       window.__set_value(el, step.which === "username" ? creds.username : creds.password);
@@ -465,12 +465,15 @@ function run_step(step, creds) {{
   }}
   if (step.type === "click") {{
     return wait_el(step.descriptor).then(function (el) {{
+      // Advance the pointer before clicking. A click may navigate, tearing the
+      // context down at any moment afterward; the pointer must already point at
+      // the next step so re-injection resumes past this click.
+      set_step(idx + 1);
       el.click();
-      // A click may navigate (context torn down; re-inject at the advanced
-      // pointer) or update in place (no reload). Settle briefly: navigation
+      // The click may instead update in place (no reload). Settle: navigation
       // preempts by destroying the context, otherwise keep stepping.
       return new Promise(function (resolve) {{
-        setTimeout(function () {{ resolve("continue"); }}, 800);
+        setTimeout(function () {{ resolve("continue"); }}, 3000);
       }});
     }});
   }}
@@ -490,7 +493,7 @@ function run_scrape(creds) {{
   function step_loop() {{
     var idx = get_step();
     if (idx >= NAV_STEPS.length) return run_scrape(creds);
-    return run_step(NAV_STEPS[idx], creds).then(function (outcome) {{
+    return run_step(NAV_STEPS[idx], creds, idx).then(function (outcome) {{
       set_step(idx + 1);
       if (outcome === "navigated") return never();
       return step_loop();
