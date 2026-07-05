@@ -15,6 +15,7 @@ export {
   save_credentials,
   read_credentials,
   delete_credentials,
+  has_credentials,
 } from "./keystore";
 
 export type {
@@ -29,6 +30,7 @@ export type {
   stored_credentials,
   resident_profile,
   linked_account,
+  provider_catalog_entry,
   site_script_request,
   bill_push_request,
   utility_api_request,

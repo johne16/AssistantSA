@@ -72,6 +72,12 @@ export interface agent_request {
   params: { account_ref?: string; site_id?: string };
 }
 
+// agentListLinkedAccounts invocation payload.
+export interface agent_list_linked_accounts_request {
+  tenant_context_token: string;
+  operation: "list_linked_accounts";
+}
+
 // utilityRead params.
 export interface utility_read_params {
   account_ref?: string;
@@ -112,6 +118,15 @@ export interface resident_profile {
 export interface linked_account {
   site_id: string;
   provider: string;
+}
+
+// A supported provider. site_id must equal the base name of a scrape script file
+// (scrape_scripts/<site_id>.js); provider is the display name; service_kind is
+// what the provider supplies (e.g. power/electric).
+export interface provider_catalog_entry {
+  site_id: string;
+  provider: string;
+  service_kind: string;
 }
 
 // Module config.

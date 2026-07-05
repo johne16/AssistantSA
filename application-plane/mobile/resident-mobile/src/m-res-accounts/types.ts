@@ -86,6 +86,14 @@ export interface linked_account {
   provider: string;
 }
 
+// A supported provider, served by ap-utility (mirror). Drives the add-account
+// dropdown; site_id matches a backend scrape script file.
+export interface provider_catalog_entry {
+  site_id: string;
+  provider: string;
+  service_kind: string;
+}
+
 // profile save request body.
 export interface profile_save_request {
   tenant_context_token: string;
@@ -180,4 +188,5 @@ export interface scrape_job {
 export const accounts_query_keys = {
   profile: ["accounts", "profile"] as const,
   linked: ["accounts", "linked"] as const,
+  catalog: ["accounts", "catalog"] as const,
 };

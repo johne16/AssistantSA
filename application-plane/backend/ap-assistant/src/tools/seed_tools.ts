@@ -55,11 +55,15 @@ export const seed_tools: task_tool[] = [
     tool_definition: {
       name: "read_utility_bill",
       description:
-        "Use when the resident asks about their utility bill, balance due, or recent usage.",
+        "Use when the resident asks about their utility bill, balance due, or recent usage. Called with no input it returns the bills for every linked account; pass site_id to read one account.",
       input_schema: {
         type: "object",
         properties: {
-          account_id: { type: "string", description: "Utility account identifier." },
+          site_id: {
+            type: "string",
+            description:
+              "site_id of one linked account. Omit to return bills for all linked accounts.",
+          },
         },
         required: [],
       },

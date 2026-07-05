@@ -13,6 +13,8 @@ import {
   View,
 } from "react-native";
 
+import { useTheme } from "@/m-res-shell";
+
 import { save_credentials } from "./keystore";
 import type { credential_entry } from "./types";
 
@@ -20,10 +22,15 @@ export interface link_account_fields_props {
   site_id: string;
   // Fired after the entry is written to the keystore. No values are passed up.
   on_linked?: () => void;
+  // Submit button title. Defaults to "Link account"; the accounts screen passes
+  // "Save" when re-entering credentials for an already-linked account.
+  submit_label?: string;
 }
 
 export function LinkAccountFields(props: link_account_fields_props) {
-  const { site_id, on_linked } = props;
+  const { site_id, on_linked, submit_label } = props;
+  const t = useTheme();
+  const c = t.color;
   const [username, set_username] = useState("");
   const [password, set_password] = useState("");
   const [saving, set_saving] = useState(false);
@@ -50,21 +57,26 @@ export function LinkAccountFields(props: link_account_fields_props) {
 
   const can_submit = username.length > 0 && password.length > 0 && !saving;
 
+  const input_style = [
+    styles.input,
+    { borderColor: c.border_strong, color: c.ink, backgroundColor: c.surface },
+  ];
+
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Username</Text>
+      <Text style={[styles.label, { color: c.ink }]}>Username</Text>
       <TextInput
-        style={styles.input}
+        style={input_style}
         value={username}
         onChangeText={set_username}
         autoCapitalize="none"
         autoCorrect={false}
         textContentType="username"
       />
-      <Text style={styles.label}>Password</Text>
+      <Text style={[styles.label, { color: c.ink }]}>Password</Text>
       <View style={styles.password_row}>
         <TextInput
-          style={[styles.input, styles.password_input]}
+          style={[...input_style, styles.password_input]}
           value={password}
           onChangeText={set_password}
           autoCapitalize="none"
@@ -77,13 +89,19 @@ export function LinkAccountFields(props: link_account_fields_props) {
           hitSlop={8}
           style={styles.password_toggle}
         >
-          <Text style={styles.password_toggle_text}>
+          <Text style={[styles.password_toggle_text, { color: c.ink_muted }]}>
             {show_password ? "Hide" : "Show"}
           </Text>
         </Pressable>
       </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Button title="Link account" onPress={submit} disabled={!can_submit} />
+      {error ? (
+        <Text style={[styles.error, { color: c.danger }]}>{error}</Text>
+      ) : null}
+      <Button
+        title={submit_label ?? "Link account"}
+        onPress={submit}
+        disabled={!can_submit}
+      />
     </View>
   );
 }
@@ -93,7 +111,6 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: "600" },
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
     borderRadius: 6,
     paddingHorizontal: 10,
     paddingVertical: 8,
@@ -101,6 +118,6 @@ const styles = StyleSheet.create({
   password_row: { flexDirection: "row", alignItems: "center", gap: 8 },
   password_input: { flex: 1 },
   password_toggle: { paddingHorizontal: 4, paddingVertical: 8 },
-  password_toggle_text: { fontSize: 13, fontWeight: "600", color: "#555" },
-  error: { fontSize: 13, color: "#b3261e" },
+  password_toggle_text: { fontSize: 13, fontWeight: "600" },
+  error: { fontSize: 13 },
 });

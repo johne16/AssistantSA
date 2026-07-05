@@ -4,13 +4,16 @@ import type {
   assistant_core,
   circuit_breaker_options,
   circuit_state,
+  linked_accounts_port,
   llm_message,
   llm_path,
   llm_port,
   llm_request,
   llm_stream_event,
   llm_text_block,
+  llm_tool_definition,
   pending_confirmation,
+  provider_catalog_entry,
   reminder_chunk,
   response_chunk,
   source_chunk,
@@ -173,6 +176,7 @@ export interface core_deps {
   store: session_store;
   registry: tool_registry;
   ports: tool_request_ports;
+  linked_accounts: linked_accounts_port;
   // Absent api key forces graceful degradation (non-LLM heuristic responses).
   has_api_key: boolean;
   // Max messages retained per session; older ones are dropped so history (and
@@ -263,12 +267,13 @@ class core_impl implements assistant_core {
 
     let assistant_text = "";
     const tool_uses: { tool_name: string; input: Record<string, unknown> }[] = [];
+    const tools = await this.tools_for_turn(input.tenant_context_token);
 
     try {
       for await (const event of this.stream_with_reliability({
         path: input.path,
         system: this.system_blocks(),
-        tools: this.deps.registry.tool_definitions(),
+        tools,
         messages,
       })) {
         if (event.type === "text") {
@@ -303,7 +308,7 @@ class core_impl implements assistant_core {
     if (!results) return;
 
     // Feed the tool results back into a grounded follow-up turn.
-    yield* this.grounded_followup(input, messages, results, 0, assistant_text);
+    yield* this.grounded_followup(input, tools, messages, results, 0, assistant_text);
   }
 
   // Dispatches each selected tool in order, emitting confirmation, reminder, and
@@ -406,6 +411,7 @@ class core_impl implements assistant_core {
   // stored history matches what was shown.
   private async *grounded_followup(
     input: { session_id: string; tenant_context_token: string; message: string; path: llm_path },
+    tools: llm_tool_definition[],
     messages: llm_message[],
     results: { tool_name: string; result: unknown }[],
     hops: number,
@@ -427,7 +433,7 @@ class core_impl implements assistant_core {
       for await (const event of this.stream_with_reliability({
         path: input.path,
         system: this.system_blocks(),
-        tools: this.deps.registry.tool_definitions(),
+        tools,
         messages: followup_messages,
       })) {
         if (event.type === "text") {
@@ -449,7 +455,7 @@ class core_impl implements assistant_core {
     if (tool_uses.length > 0 && hops + 1 < max_tool_hops) {
       const next = yield* this.dispatch_tools(input, tool_uses);
       if (!next) return;
-      yield* this.grounded_followup(input, followup_messages, next, hops + 1, join_shown(shown_text, text));
+      yield* this.grounded_followup(input, tools, followup_messages, next, hops + 1, join_shown(shown_text, text));
       return;
     }
 
@@ -481,13 +487,52 @@ class core_impl implements assistant_core {
     }
 
     const history = await this.deps.store.load(input.session_id);
+    const tools = await this.tools_for_turn(input.tenant_context_token);
     yield* this.grounded_followup(
       input,
+      tools,
       [...history, { role: "user", content: input.message }],
       [{ tool_name: pending.tool_name, result: result.response.result }],
       0,
       "",
     );
+  }
+
+  // Per-turn tool definitions. The read_utility_bill site_id description is
+  // rewritten to enumerate the resident's linked accounts (site_id, provider,
+  // service kind), so the model maps a provider or service mention to a real
+  // site_id instead of guessing one from the resident's wording. A failed or
+  // empty fetch falls back to the static definitions.
+  private async tools_for_turn(
+    tenant_context_token: string,
+  ): Promise<llm_tool_definition[]> {
+    const tools = this.deps.registry.tool_definitions();
+    let accounts: provider_catalog_entry[] = [];
+    try {
+      accounts = await this.deps.linked_accounts.list(tenant_context_token);
+    } catch (err) {
+      console.error("[ap-assistant] linked_accounts.list failed:", err);
+    }
+    if (accounts.length === 0) return tools;
+    const listing = accounts
+      .map((a) =>
+        a.service_kind
+          ? `${a.site_id} (${a.provider}, ${a.service_kind})`
+          : `${a.site_id} (${a.provider})`,
+      )
+      .join(", ");
+    return tools.map((t) => {
+      if (t.name !== "read_utility_bill") return t;
+      const clone = structuredClone(t);
+      const props = clone.input_schema["properties"] as
+        | Record<string, { description?: string }>
+        | undefined;
+      const site_id = props?.["site_id"];
+      if (site_id) {
+        site_id.description = `site_id of one linked account. The resident's linked accounts: ${listing}. Omit to return bills for all linked accounts.`;
+      }
+      return clone;
+    });
   }
 
   // Stable system prefix (persona + tool defs implicitly via request.tools) marked

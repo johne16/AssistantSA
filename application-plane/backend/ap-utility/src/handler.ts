@@ -2,9 +2,11 @@
 
 import { create_utility_service, type utility_read_result } from "./service.js";
 import type {
+  agent_list_linked_accounts_request,
   agent_request,
   bill_push,
   linked_account,
+  provider_catalog_entry,
   resident_profile,
   scrape_script_entry,
   tenant_claims,
@@ -23,6 +25,7 @@ export interface utility_handler {
   ): Promise<utility_read_result>;
   bill_push(request: bill_push, claims: tenant_claims): Promise<void>;
   script_read(site_id: string, claims: tenant_claims): scrape_script_entry | undefined;
+  catalog_read(claims: tenant_claims): provider_catalog_entry[];
   save_profile(profile: resident_profile, claims: tenant_claims): Promise<void>;
   get_profile(claims: tenant_claims): Promise<resident_profile | null>;
   link_account(account: linked_account, claims: tenant_claims): Promise<void>;
@@ -30,6 +33,9 @@ export interface utility_handler {
   unlink_account(site_id: string, claims: tenant_claims): Promise<void>;
   // Assistant: RS256-verify the forwarded token, never bare claims.
   agent_request(request: agent_request): Promise<utility_read_result>;
+  agent_list_linked_accounts(
+    request: agent_list_linked_accounts_request,
+  ): Promise<provider_catalog_entry[]>;
   // Scheduler.
   run_outage_fetch(): Promise<void>;
   run_reminder_evaluation(): Promise<void>;
@@ -132,6 +138,26 @@ export function create_utility_handler(deps: utility_handler_deps): utility_hand
     });
   }
 
+  function catalog_read(_claims: tenant_claims): provider_catalog_entry[] {
+    return service.catalog();
+  }
+
+  // The resident's linked accounts joined with the provider catalog, so the
+  // assistant sees each account's service_kind alongside its site_id.
+  async function agent_list_linked_accounts(
+    request: agent_list_linked_accounts_request,
+  ): Promise<provider_catalog_entry[]> {
+    return with_logging("agent_list_linked_accounts", async () => {
+      const token = await token_verifier.verify(request.tenant_context_token);
+      const linked = await service.list_linked_accounts(token);
+      const catalog = service.catalog();
+      return linked.map((a) => {
+        const entry = catalog.find((c) => c.site_id === a.site_id);
+        return entry ?? { site_id: a.site_id, provider: a.provider, service_kind: "" };
+      });
+    });
+  }
+
   async function run_outage_fetch(): Promise<void> {
     await with_logging("run_outage_fetch", () => service.run_outage_fetch());
   }
@@ -146,12 +172,14 @@ export function create_utility_handler(deps: utility_handler_deps): utility_hand
     utility_read,
     bill_push,
     script_read,
+    catalog_read,
     save_profile,
     get_profile,
     link_account,
     list_linked_accounts,
     unlink_account,
     agent_request,
+    agent_list_linked_accounts,
     run_outage_fetch,
     run_reminder_evaluation,
   };

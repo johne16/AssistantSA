@@ -1,12 +1,14 @@
 // ap-utility service: stored utility reads, push storage, script registry,
 // scheduled outage fetch, and bill reminder evaluation.
 
+import { provider_catalog } from "./provider_catalog.js";
 import type {
   bill_push,
   bill_view,
   linked_account,
   notify_request,
   outage_view,
+  provider_catalog_entry,
   resident_profile,
   scrape_script_entry,
   tenant_context_token,
@@ -26,6 +28,7 @@ export interface utility_service {
   ): Promise<utility_read_result>;
   push(token: tenant_context_token, push: bill_push): Promise<void>;
   script(site_id: string): scrape_script_entry | undefined;
+  catalog(): provider_catalog_entry[];
   save_profile(token: tenant_context_token, profile: resident_profile): Promise<void>;
   get_profile(token: tenant_context_token): Promise<resident_profile | null>;
   link_account(token: tenant_context_token, account: linked_account): Promise<void>;
@@ -92,6 +95,10 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
 
   function script(site_id: string): scrape_script_entry | undefined {
     return config.scrape_script_registry[site_id];
+  }
+
+  function catalog(): provider_catalog_entry[] {
+    return provider_catalog;
   }
 
   // Fetch, dedupe, store, notify, and prune outages for one resident address.
@@ -243,6 +250,7 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
     read,
     push,
     script,
+    catalog,
     save_profile,
     get_profile,
     link_account,

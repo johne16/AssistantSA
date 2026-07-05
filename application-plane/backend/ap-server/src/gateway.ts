@@ -5,6 +5,7 @@
 //   POST /civic                    -> ap-civic.civic_read
 //   POST /civic/refresh            -> ap-civic.civic_refresh
 //   POST /utility/site-script      -> ap-utility.script_read
+//   POST /utility/catalog          -> ap-utility.catalog_read
 //   POST /utility/bill-push        -> ap-utility.bill_push
 //   POST /utility/read             -> ap-utility.utility_read
 //   POST /utility/profile          -> ap-utility.save_profile
@@ -166,6 +167,22 @@ export function create_gateway(modules: gateway_modules): express.Express {
       });
       if (!entry) return res.status(404).json({ error: "unknown_site" });
       res.json(entry);
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  // POST /utility/catalog { tenant_context_token } -> provider_catalog_entry[]
+  app.post("/utility/catalog", async (req: Request, res: Response) => {
+    const auth = await authenticate(req, res);
+    if (!auth) return;
+    try {
+      const { claims } = auth;
+      const entries = modules.utility.catalog_read({
+        sub: claims.sub,
+        city_tenant_id: claims.city_tenant_id,
+      });
+      res.json(entries);
     } catch (err) {
       fail(res, err);
     }

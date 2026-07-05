@@ -21,6 +21,7 @@ import type {
   bill_push_request,
   bill_view,
   linked_account,
+  provider_catalog_entry,
   profile_save_request,
   resident_profile,
   scrape_job,
@@ -39,6 +40,7 @@ export type sync_listener = (result: sync_result) => void;
 // Stable empty fallback so an unresolved query keeps a constant reference (a new
 // [] each render would make the linked mirror effect loop).
 const EMPTY_LINKED: linked_account[] = [];
+const EMPTY_CATALOG: provider_catalog_entry[] = [];
 
 // AsyncStorage key for the site_id -> local date of the last successful scrape.
 // A site that already scraped successfully today is skipped by every automatic
@@ -90,6 +92,8 @@ export interface use_accounts_value {
   // then linked may be the persisted offline cache, which must not initiate
   // scrapes: only server-side linked account records drive syncs.
   linked_fetched: boolean;
+  // The providers a resident can link, served by the backend.
+  catalog: provider_catalog_entry[];
   // Persist the resident profile to the backend.
   save_profile(profile: resident_profile): Promise<void>;
   // The resident profile. Null until first loaded/saved.
@@ -198,6 +202,20 @@ export function useAccounts(
       });
       if (!res.ok) throw new Error(`accounts-read ${res.status}`);
       return (await res.json()) as linked_account[];
+    },
+  });
+
+  // The providers a resident can link.
+  const catalog_query = useQuery({
+    queryKey: accounts_query_keys.catalog,
+    queryFn: async (): Promise<provider_catalog_entry[]> => {
+      const res = await fetch(`${base}/utility/catalog`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tenant_context_token }),
+      });
+      if (!res.ok) throw new Error(`catalog ${res.status}`);
+      return (await res.json()) as provider_catalog_entry[];
     },
   });
 
@@ -404,6 +422,7 @@ export function useAccounts(
 
   const linked = linked_query.data ?? EMPTY_LINKED;
   const linked_fetched = linked_query.isFetchedAfterMount;
+  const catalog = catalog_query.data ?? EMPTY_CATALOG;
   const profile = profile_query.data ?? null;
 
   return useMemo<use_accounts_value>(
@@ -415,6 +434,7 @@ export function useAccounts(
       unlink_account,
       linked,
       linked_fetched,
+      catalog,
       save_profile,
       profile,
       on_sync_result,
@@ -427,6 +447,7 @@ export function useAccounts(
       unlink_account,
       linked,
       linked_fetched,
+      catalog,
       save_profile,
       profile,
       on_sync_result,

@@ -7,6 +7,7 @@ import type {
 } from "./types.js";
 
 export { create_utility_service } from "./service.js";
+export { provider_catalog } from "./provider_catalog.js";
 export { create_utility_handler } from "./handler.js";
 export type { utility_service, utility_read_result } from "./service.js";
 export type { utility_handler } from "./handler.js";

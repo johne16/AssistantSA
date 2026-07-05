@@ -25,6 +25,8 @@ export type {
   tool_response,
   tool_request_port,
   tool_request_ports,
+  linked_accounts_port,
+  provider_catalog_entry,
   llm_port,
   llm_request,
   llm_stream_event,

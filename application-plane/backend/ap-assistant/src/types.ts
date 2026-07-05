@@ -45,6 +45,22 @@ export interface tool_request_ports {
   "ap-reminders": tool_request_port;
 }
 
+// ---- linked-accounts port (this module owns it; ap-server injects an ap-utility adapter) ----
+
+// Mirror block: owned by ap-utility. A linked account joined with the provider
+// catalog.
+export interface provider_catalog_entry {
+  site_id: string;
+  provider: string;
+  service_kind: string;
+}
+
+// Lists the resident's linked utility accounts, used to ground the
+// read_utility_bill tool's site_id values each turn.
+export interface linked_accounts_port {
+  list(tenant_context_token: string): Promise<provider_catalog_entry[]>;
+}
+
 // ---- llm port (this module owns it; ap-server injects an Anthropic adapter) ----
 
 export type llm_role = "user" | "assistant";

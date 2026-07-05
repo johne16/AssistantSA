@@ -55,12 +55,11 @@ export function create_utility_tool_port(handler: utility_handler): tool_request
       if (!resource) {
         return { operation: request.operation, result: { error: "unknown_operation" } };
       }
-      const account_ref =
-        as_string(request.params["account_id"]) ?? as_string(request.params["account_ref"]);
+      const site_id = as_string(request.params["site_id"]);
       const response = await handler.agent_request({
         tenant_context_token: request.tenant_context_token,
         operation: resource,
-        params: account_ref !== undefined ? { account_ref } : {},
+        params: site_id !== undefined ? { site_id } : {},
       });
       return { operation: request.operation, result: response };
     },

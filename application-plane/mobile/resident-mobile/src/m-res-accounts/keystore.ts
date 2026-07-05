@@ -31,6 +31,13 @@ export async function read_credentials(
   return JSON.parse(raw) as stored_credentials;
 }
 
+// Whether credentials for a site exist on this device. Presence only; the
+// values are never returned.
+export async function has_credentials(site_id: string): Promise<boolean> {
+  const raw = await SecureStore.getItemAsync(store_key(site_id));
+  return raw != null;
+}
+
 // Remove stored credentials for a site.
 export async function delete_credentials(site_id: string): Promise<void> {
   await SecureStore.deleteItemAsync(store_key(site_id));

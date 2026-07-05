@@ -300,6 +300,15 @@ async function main(): Promise<void> {
     store: create_session_store(config.redis_url),
     registry,
     ports: create_tool_request_ports(civic, utility, reminders),
+    // Grounds the read_utility_bill site_id values in the resident's linked
+    // accounts each turn.
+    linked_accounts: {
+      list: (tenant_context_token) =>
+        utility.agent_list_linked_accounts({
+          tenant_context_token,
+          operation: "list_linked_accounts",
+        }),
+    },
     has_api_key: Boolean(config.claude_api_key),
     max_message_history: config.max_message_history,
   });

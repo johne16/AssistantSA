@@ -354,6 +354,14 @@ export function Portal() {
     },
     [accounts],
   );
+  // Credentials were (re-)entered for an already-linked account; sync it now so
+  // the fresh login is used immediately.
+  const on_credentials_saved = useCallback(
+    (site_id: string) => {
+      void accounts.sync(site_id);
+    },
+    [accounts],
+  );
   const on_unlink = useCallback(
     async (site_id: string) => {
       try {
@@ -434,12 +442,14 @@ export function Portal() {
           <AccountsScreen
             linked={linked}
             on_unlink={on_unlink}
+            on_credentials_saved={on_credentials_saved}
             select={select_panel}
           />
         );
       case "add_account":
         return (
           <AddAccountScreen
+            catalog={accounts.catalog}
             on_linked={on_linked}
             onBack={() => set_panel("accounts")}
           />
