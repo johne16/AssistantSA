@@ -10,7 +10,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 
 import { app_config } from "@/app-config";
-import { useTheme, useLang, OfflineBanner } from "@/m-res-shell";
+import { useTheme, useLang, useBackendReady, OfflineBanner } from "@/m-res-shell";
 import { useCivic, type alert_entry } from "@/m-res-civic";
 import {
   ScrapeRunner,
@@ -177,15 +177,18 @@ export function Portal() {
   }, [accounts, notifications, prefs.push_enabled, linked]);
 
   // Scrape linked accounts when the set changes (cold-start load, or self-heal
-  // when the query refetches after the gateway returns). Keyed on the site_id set.
+  // when the query refetches after the gateway returns). Keyed on the site_id
+  // set. A site that already scraped successfully today is skipped inside
+  // m-res-accounts, so set changes (e.g. an unlink) do not re-log-in survivors.
   const linked_key = linked
     .map((a) => a.site_id)
     .sort()
     .join(",");
+  const backend_ready = useBackendReady();
   useEffect(() => {
-    // Scrape only once the linked list reflects the backend's records; the
-    // persisted offline cache alone must not initiate scrapes.
-    if (!accounts.linked_fetched || linked_key.length === 0) return;
+    // Scrape only once the backend is reachable and the linked list reflects
+    // its records; the persisted offline cache alone must not initiate scrapes.
+    if (!backend_ready || !accounts.linked_fetched || linked_key.length === 0) return;
     // Skip only the sites already in flight, so linking a second account while
     // the first is still syncing still scrapes the new one.
     const site_ids = linked_key
@@ -194,7 +197,7 @@ export function Portal() {
     if (site_ids.length === 0) return;
     void accounts.sync_all(site_ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linked_key, accounts.linked_fetched]);
+  }, [linked_key, accounts.linked_fetched, backend_ready]);
 
   // Re-scrape on warm foreground so utility data refreshes without a cold start.
   // Skipped if a sync is already in flight.
@@ -202,6 +205,7 @@ export function Portal() {
     const sub = AppState.addEventListener("change", (state) => {
       if (
         state !== "active" ||
+        !backend_ready ||
         !accounts.linked_fetched ||
         linked.length === 0 ||
         in_flight.current.size > 0
@@ -211,7 +215,7 @@ export function Portal() {
       void accounts.sync_all(linked.map((a) => a.site_id));
     });
     return () => sub.remove();
-  }, [accounts, linked]);
+  }, [accounts, linked, backend_ready]);
 
   // ElevenLabs voice the resident picked in Settings, sent on the next voice
   // session's open frame.

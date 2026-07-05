@@ -6,6 +6,7 @@ export {
   query_client,
   persist_options,
   setup_query_managers,
+  useBackendReady,
   useOnline,
 } from "./query";
 export { OfflineBanner } from "./OfflineBanner";

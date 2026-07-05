@@ -6,6 +6,7 @@
 // reach the gateway.
 
 import { useCallback, useMemo, useRef } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { app_config } from "@/app-config";
@@ -38,6 +39,38 @@ export type sync_listener = (result: sync_result) => void;
 // Stable empty fallback so an unresolved query keeps a constant reference (a new
 // [] each render would make the linked mirror effect loop).
 const EMPTY_LINKED: linked_account[] = [];
+
+// AsyncStorage key for the site_id -> local date of the last successful scrape.
+// A site that already scraped successfully today is skipped by every automatic
+// trigger, so repeated triggers do not hammer the provider with logins.
+const last_scrape_success_key = "m_res_accounts.last_scrape_success";
+
+// Local calendar date (YYYY-MM-DD), so "once a day" follows the device's clock.
+function local_date(): string {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+async function read_last_scrape_success(): Promise<Record<string, string>> {
+  try {
+    const raw = await AsyncStorage.getItem(last_scrape_success_key);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function write_last_scrape_success(site_id: string): Promise<void> {
+  try {
+    const dates = await read_last_scrape_success();
+    dates[site_id] = local_date();
+    await AsyncStorage.setItem(last_scrape_success_key, JSON.stringify(dates));
+  } catch {
+    // Best effort; a lost write only means an extra scrape on the next trigger.
+  }
+}
 
 export interface use_accounts_value {
   // Read stored utility data for a portal screen.
@@ -219,6 +252,13 @@ export function useAccounts(
       });
       if (!res.ok) throw new Error(`accounts-unlink ${res.status}`);
       await delete_credentials(site_id);
+      // Clear the daily-scrape record so relinking the site later today scrapes
+      // fresh instead of being skipped.
+      const dates = await read_last_scrape_success();
+      if (dates[site_id]) {
+        delete dates[site_id];
+        await AsyncStorage.setItem(last_scrape_success_key, JSON.stringify(dates));
+      }
     },
     onSuccess: (_data, site_id) => {
       client.setQueryData<linked_account[]>(
@@ -265,12 +305,20 @@ export function useAccounts(
 
   // Run a single site through the off-screen WebView. Reads creds at scrape
   // time, fetches the fresh script, drives the scrape, pushes results. A site
-  // already in flight is joined, not scraped again.
+  // already in flight is joined, not scraped again, and a site that already
+  // scraped successfully today is skipped without logging in.
   const run_site = useCallback(
     (site_id: string): Promise<sync_result> => {
       const existing = in_flight.current.get(site_id);
       if (existing) return existing;
       const promise = (async (): Promise<sync_result> => {
+      const dates = await read_last_scrape_success();
+      if (dates[site_id] === local_date()) {
+        console.log(`[scrape ${site_id}] skipped: already synced today`);
+        const result: sync_result = { site_id, sync_status: "done" };
+        emit(result);
+        return result;
+      }
       emit({ site_id, sync_status: "syncing" });
       console.log(`[scrape ${site_id}] sync start`);
       try {
@@ -295,6 +343,7 @@ export function useAccounts(
           `[scrape ${site_id}] scrape done: ${bills.length} bills, ${usage.length} usage`,
         );
         await push_bills(site_id, bills, usage);
+        await write_last_scrape_success(site_id);
 
         const result: sync_result = {
           site_id,
