@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -41,6 +42,13 @@ export function AssistantScreen(props: {
   } = props.engine;
 
   const scroll_ref = useRef<ScrollView | null>(null);
+
+  // Hide the keyboard when a message is sent so it doesn't cover the thread
+  // while the assistant responds.
+  const send = () => {
+    Keyboard.dismiss();
+    submit();
+  };
 
   // Keep the thread pinned to the newest turn as tokens and transcripts arrive.
   useEffect(() => {
@@ -150,14 +158,9 @@ export function AssistantScreen(props: {
             placeholder={tr("Ask the assistant anything.")}
             placeholderTextColor={t.color.ink_subtle}
             multiline
-            // Multiline inputs default to submitBehavior "newline", which
-            // inserts a newline instead of firing onSubmitEditing.
-            submitBehavior="submit"
-            onSubmitEditing={submit}
-            returnKeyType="send"
           />
           <Pressable
-            onPress={submit}
+            onPress={send}
             disabled={sending || draft.trim().length === 0}
             style={[
               styles.send,
