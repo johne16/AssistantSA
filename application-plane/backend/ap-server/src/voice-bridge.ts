@@ -56,7 +56,7 @@ export function create_voice_bridge(deps: voice_bridge_deps): {
           await deps.token_verifier.verify(open.tenant_context_token);
         } catch (err) {
           console.error("[ap-server] voice-bridge authorization failed:", err);
-          client.send(JSON.stringify({ kind: "error", error: "unauthorized" }));
+          client.send(JSON.stringify({ type: "error", error: "unauthorized" }));
           close_both();
           return;
         }
@@ -78,7 +78,7 @@ export function create_voice_bridge(deps: voice_bridge_deps): {
         });
         upstream.on("close", close_both);
         upstream.on("error", () => {
-          client.send(JSON.stringify({ kind: "error", error: "voice_upstream_unavailable" }));
+          client.send(JSON.stringify({ type: "error", error: "voice_upstream_unavailable" }));
           close_both();
         });
         return;

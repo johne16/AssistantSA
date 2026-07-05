@@ -93,11 +93,17 @@ async function ensure_schema(pool: Pool, schema: string): Promise<void> {
   )`);
   await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.utility_usage (
     sub text NOT NULL,
+    site_id text NOT NULL DEFAULT '',
     account_ref text NOT NULL,
     period_start text NOT NULL,
     payload jsonb NOT NULL,
     PRIMARY KEY (sub, account_ref, period_start)
   )`);
+  // Migrate an existing table created before usage rows carried the site, so
+  // unlink can delete a site's usage.
+  await pool.query(
+    `ALTER TABLE ${schema}.utility_usage ADD COLUMN IF NOT EXISTS site_id text NOT NULL DEFAULT ''`,
+  );
   await pool.query(`CREATE TABLE IF NOT EXISTS ${schema}.utility_outage (
     sub text NOT NULL,
     outage_id text NOT NULL,
@@ -346,12 +352,27 @@ export function create_utility_store(pool: Pool): utility_store {
       }
       for (const u of push.usage) {
         await pool.query(
-          `INSERT INTO ${s}.utility_usage (sub, account_ref, period_start, payload)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (sub, account_ref, period_start) DO UPDATE SET payload = EXCLUDED.payload`,
-          [sub, u.account_ref, u.period_start, u],
+          `INSERT INTO ${s}.utility_usage (sub, site_id, account_ref, period_start, payload)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (sub, account_ref, period_start) DO UPDATE
+             SET site_id = EXCLUDED.site_id, payload = EXCLUDED.payload`,
+          [sub, push.site_id, u.account_ref, u.period_start, u],
         );
       }
+    },
+    async delete_bills(city_tenant_id, sub, site_id) {
+      const s = await scoped(pool, city_tenant_id);
+      await pool.query(`DELETE FROM ${s}.utility_bill WHERE sub = $1 AND site_id = $2`, [
+        sub,
+        site_id,
+      ]);
+    },
+    async delete_usage(city_tenant_id, sub, site_id) {
+      const s = await scoped(pool, city_tenant_id);
+      await pool.query(`DELETE FROM ${s}.utility_usage WHERE sub = $1 AND site_id = $2`, [
+        sub,
+        site_id,
+      ]);
     },
     async store_outages(city_tenant_id, sub, outages: outage_view[]) {
       const s = await scoped(pool, city_tenant_id);

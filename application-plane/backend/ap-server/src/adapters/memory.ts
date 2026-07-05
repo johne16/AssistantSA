@@ -163,6 +163,12 @@ export function create_memory_utility_store(): utility_store {
       bills.set(ks(city, sub, push.site_id), push.bills);
       usage.set(ks(city, sub, push.site_id), push.usage);
     },
+    async delete_bills(city, sub, site_id) {
+      bills.delete(ks(city, sub, site_id));
+    },
+    async delete_usage(city, sub, site_id) {
+      usage.delete(ks(city, sub, site_id));
+    },
     async store_outages(city, sub, list) {
       const existing = outages.get(k(city, sub)) ?? [];
       const incoming = new Set(list.map((o) => o.outage_id));

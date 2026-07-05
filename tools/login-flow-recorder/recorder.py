@@ -90,7 +90,12 @@ due date, and account number; usage if present on the same view).
 routine that reads it from the DOM and returns { bills, usage } where bills \
 contains exactly the most recent statement:
    bill_view = { due_date (ISO date YYYY-MM-DD), total (number, the amount due) }
-   bills must contain the most recent bill. Always return [] for usage.
+   usage_view = { account_ref (string, the account number), period_start (ISO \
+date YYYY-MM-DD), period_end (ISO date YYYY-MM-DD), amount (number), unit \
+(string, e.g. kWh) }
+   bills must contain the most recent bill. usage must contain a usage_view per \
+usage row shown on the same view; return [] for usage only when the view shows \
+no usage data.
 4. Call finish. Only call finish after extract_data has succeeded with the most \
 recent bill; do not call it before then.
 

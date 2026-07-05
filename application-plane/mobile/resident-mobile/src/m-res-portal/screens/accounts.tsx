@@ -100,26 +100,24 @@ export function AccountsScreen(props: {
           <Pressable
             onPress={() => unlink(a.site_id)}
             hitSlop={8}
-            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            style={{
+              borderWidth: 1,
+              borderColor: c.border_strong,
+              borderRadius: t.radius.sm,
+              paddingHorizontal: t.spacing.sm,
+              paddingVertical: 6,
+            }}
           >
-            <View
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: 4,
-                backgroundColor: c.primary,
-              }}
-            />
             <Text
               style={{
                 fontFamily: t.font.mono,
                 fontSize: 10.5,
                 letterSpacing: 0.5,
                 textTransform: "uppercase",
-                color: c.primary,
+                color: c.signal,
               }}
             >
-              {tr("Linked")}
+              {tr("Unlink")}
             </Text>
           </Pressable>
         </View>

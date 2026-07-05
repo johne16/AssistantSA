@@ -142,16 +142,24 @@ export function useAudioIo(): audio_io {
       // a second caller (e.g. a voice session while the wake listener is up)
       // reuses the running engine instead of restarting the mic.
       if (capture_promise.current) return capture_promise.current;
-      capture_promise.current = (async () => {
+      // Definite-assignment assertion: the closure only reads promise after the
+      // first await, by which point the assignment below has run.
+      let promise!: Promise<void>;
+      promise = (async () => {
         // Clear the cached promise on any failure so the next call retries
         // instead of returning a permanently rejected promise (which would wedge
         // capture after a transient permission or init failure).
         try {
           const permission = await requestMicrophonePermissionsAsync();
+          // stop_capture ran while this start was awaiting (e.g. a quick toggle
+          // during the permission prompt): abandon the start instead of leaving
+          // the mic recording with no owner.
+          if (capture_promise.current !== promise) return;
           if (!permission.granted) {
             throw new Error("microphone permission denied");
           }
           await ensure_initialized();
+          if (capture_promise.current !== promise) return;
           // Echo-cancelled PCM frames arrive here; encode once and fan out to
           // every registered consumer (wake detector, pre-roll buffer, session).
           mic_sub.current?.remove();
@@ -181,11 +189,12 @@ export function useAudioIo(): audio_io {
           // Unmute the mic to begin emitting onMicrophoneData events.
           toggleRecording(true);
         } catch (err) {
-          capture_promise.current = null;
+          if (capture_promise.current === promise) capture_promise.current = null;
           throw err;
         }
       })();
-      return capture_promise.current;
+      capture_promise.current = promise;
+      return promise;
     },
     async stop_capture(): Promise<void> {
       capture_promise.current = null;

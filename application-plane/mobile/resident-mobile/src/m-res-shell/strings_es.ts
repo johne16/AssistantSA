@@ -243,7 +243,6 @@ export const strings_es: Record<string, string> = {
   // bex concept — accounts
   "Linked services": "Servicios vinculados",
   "Link a utility and Bex can read bills, usage, and outages for you.": "Vincula un servicio y Bex podrá leer tus facturas, consumo y cortes.",
-  "Linked": "Vinculada",
   "Add an account": "Agregar una cuenta",
   "Bex only reads what you link. Nothing is shared.": "Bex solo lee lo que vinculas. No se comparte nada.",
   "New account": "Cuenta nueva",

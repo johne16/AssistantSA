@@ -47,26 +47,26 @@
 
 ## mobile: assistant/accounts
 
-- [ ] 34. `m-res-assistant/useAssistantEngine.ts:332` + `m-res-assistant/voice-client.ts:231-242` - server-initiated close leaves a stale `voice_ref`; wake-word starts silently no-op until manual toggle.
-- [ ] 35. `m-res-assistant/useAssistantEngine.ts:400` + `m-res-assistant/voice-client.ts:231-235` - socket error leaves `voice_state` at `"error"` forever; mic held hot, wake detection dead.
-- [ ] 36. `m-res-assistant/useAssistantEngine.ts:85,128,299-308` - chat SSE stream never closed, including on unmount; callbacks fire on an unmounted hook.
-- [ ] 37. `m-res-assistant/audio-io.ts:145-206` - `stop_capture` does not cancel an in-flight `start_capture`; quick toggle during the permission prompt leaves the mic recording with no owner.
-- [ ] 38. `m-res-assistant/useAssistantEngine.ts:289-294,249-253` - silence timeout disarmed after a final user transcript; a backend that never responds keeps the session open indefinitely.
-- [ ] 39. `m-res-assistant/useAssistantEngine.ts:249-253` - pending "..." assistant bubble never finalized when the session ends without an assistant transcript.
-- [ ] 40. `m-res-assistant/AssistantScreen.tsx:146-155` - `onSubmitEditing` on a multiline TextInput without `submitBehavior="submit"`; return key inserts a newline instead of sending.
-- [ ] 41. `m-res-accounts/scrape-runner.tsx:101-127` - no job timeout; a hung site script wedges a sync worker forever, eventually deadlocking all workers.
-- [ ] 42. `m-res-accounts/LinkAccountFields.tsx:30-41` - `save_credentials` rejection is unhandled; keystore failure gives no error indication.
-- [ ] 43. `m-res-accounts/useAccounts.ts:284-310` - no per-site in-flight guard; overlapping `sync` and `sync_all` double-scrape the same site and push bills twice.
+- [x] 34. `m-res-assistant/useAssistantEngine.ts:332` + `m-res-assistant/voice-client.ts:231-242` - server-initiated close leaves a stale `voice_ref`; wake-word starts silently no-op until manual toggle.
+- [x] 35. `m-res-assistant/useAssistantEngine.ts:400` + `m-res-assistant/voice-client.ts:231-235` - socket error leaves `voice_state` at `"error"` forever; mic held hot, wake detection dead.
+- [x] 36. `m-res-assistant/useAssistantEngine.ts:85,128,299-308` - chat SSE stream never closed, including on unmount; callbacks fire on an unmounted hook.
+- [x] 37. `m-res-assistant/audio-io.ts:145-206` - `stop_capture` does not cancel an in-flight `start_capture`; quick toggle during the permission prompt leaves the mic recording with no owner.
+- [x] 38. `m-res-assistant/useAssistantEngine.ts:289-294,249-253` - silence timeout disarmed after a final user transcript; a backend that never responds keeps the session open indefinitely.
+- [x] 39. `m-res-assistant/useAssistantEngine.ts:249-253` - pending "..." assistant bubble never finalized when the session ends without an assistant transcript.
+- [x] 40. `m-res-assistant/AssistantScreen.tsx:146-155` - `onSubmitEditing` on a multiline TextInput without `submitBehavior="submit"`; return key inserts a newline instead of sending.
+- [x] 41. `m-res-accounts/scrape-runner.tsx:101-127` - no job timeout; a hung site script wedges a sync worker forever, eventually deadlocking all workers.
+- [x] 42. `m-res-accounts/LinkAccountFields.tsx:30-41` - `save_credentials` rejection is unhandled; keystore failure gives no error indication.
+- [x] 43. `m-res-accounts/useAccounts.ts:284-310` - no per-site in-flight guard; overlapping `sync` and `sync_all` double-scrape the same site and push bills twice.
 
 ## Cross-boundary mismatches
 
-- [ ] 44. `ap-server/src/voice-bridge.ts:59,81` vs `m-res-assistant/voice-client.ts:181-228` - bridge sends error frames keyed `kind`; client only parses `type` and has no error branch. Auth failure or ap-voice down is a silent no-op session.
-- [ ] 45. `ap-server/src/gateway.ts:435` vs `m-res-assistant/chat-client.ts:94` - server puts the SSE error message in `event.data`; client reads `event.message`. Real error text is always dropped for "connection error".
-- [ ] 46. `ap-utility/src/service.ts:56-57` vs `ap-server/src/adapters/tool_ports.ts:58-63` and `m-res-accounts/types.ts:122-134` - bills read filters on `site_id` but every caller sends `account_ref`; per-account bill queries silently return all bills.
-- [ ] 47. `tools/login-flow-recorder/recorder.py:93` - recorder instructs the model to always return `[]` for usage; generated scrape scripts never extract usage data, so the usage store stays empty for every site.
-- [ ] 48. mobile: Android navigation bar stays visible while the app is open and covers the bottom of the app's buttons; hide it (immersive mode) for both platforms' equivalents.
-- [ ] 49. `m-res-accounts/LinkAccountFields.tsx` - password field has no show password toggle; the entered password cannot be checked before linking.
-- [ ] 50. `m-res-portal/screens/accounts.tsx` - unlink is not visible as a button on the account cards; it reads as a "linked" status string. Make it an explicit unlink button.
-- [ ] 51. `m-res-portal/Portal.tsx` + `ap-server/src/gateway.ts` bill-push - scraping runs from the locally cached linked list and `bill_push` stores bills for any `site_id` with no `linked_account` record check; bills can exist for accounts the backend considers unlinked, and unlinking leaves stored bills behind. Scrapes should be initiated from server-side linked account records.
-- [ ] 52. `ap-utility/src/service.ts` unlink_account - stored bills and usage for the site are not deleted when the account is unlinked; delete them with the linked-account record.
-- [ ] 53. `ap-utility` bill_view - stored bill payloads carry no site_id, so bills reads (including the assistant's read_utility_bill tool) cannot attribute a bill to an account. Include the site_id in the returned bill data.
+- [x] 44. `ap-server/src/voice-bridge.ts:59,81` vs `m-res-assistant/voice-client.ts:181-228` - bridge sends error frames keyed `kind`; client only parses `type` and has no error branch. Auth failure or ap-voice down is a silent no-op session.
+- [x] 45. `ap-server/src/gateway.ts:435` vs `m-res-assistant/chat-client.ts:94` - server puts the SSE error message in `event.data`; client reads `event.message`. Real error text is always dropped for "connection error".
+- [x] 46. `ap-utility/src/service.ts:56-57` vs `ap-server/src/adapters/tool_ports.ts:58-63` and `m-res-accounts/types.ts:122-134` - bills read filters on `site_id` but every caller sends `account_ref`; per-account bill queries silently return all bills.
+- [x] 47. `tools/login-flow-recorder/recorder.py:93` - recorder instructs the model to always return `[]` for usage; generated scrape scripts never extract usage data, so the usage store stays empty for every site.
+- [x] 48. mobile: Android navigation bar stays visible while the app is open and covers the bottom of the app's buttons; hide it (immersive mode) for both platforms' equivalents.
+- [x] 49. `m-res-accounts/LinkAccountFields.tsx` - password field has no show password toggle; the entered password cannot be checked before linking.
+- [x] 50. `m-res-portal/screens/accounts.tsx` - unlink is not visible as a button on the account cards; it reads as a "linked" status string. Make it an explicit unlink button.
+- [x] 51. `m-res-portal/Portal.tsx` + `ap-server/src/gateway.ts` bill-push - scraping runs from the locally cached linked list and `bill_push` stores bills for any `site_id` with no `linked_account` record check; bills can exist for accounts the backend considers unlinked, and unlinking leaves stored bills behind. Scrapes should be initiated from server-side linked account records.
+- [x] 52. `ap-utility/src/service.ts` unlink_account - stored bills and usage for the site are not deleted when the account is unlinked; delete them with the linked-account record.
+- [x] 53. `ap-utility` bill_view - stored bill payloads carry no site_id, so bills reads (including the assistant's read_utility_bill tool) cannot attribute a bill to an account. Include the site_id in the returned bill data.

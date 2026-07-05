@@ -183,7 +183,9 @@ export function Portal() {
     .sort()
     .join(",");
   useEffect(() => {
-    if (linked_key.length === 0) return;
+    // Scrape only once the linked list reflects the backend's records; the
+    // persisted offline cache alone must not initiate scrapes.
+    if (!accounts.linked_fetched || linked_key.length === 0) return;
     // Skip only the sites already in flight, so linking a second account while
     // the first is still syncing still scrapes the new one.
     const site_ids = linked_key
@@ -192,13 +194,18 @@ export function Portal() {
     if (site_ids.length === 0) return;
     void accounts.sync_all(site_ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linked_key]);
+  }, [linked_key, accounts.linked_fetched]);
 
   // Re-scrape on warm foreground so utility data refreshes without a cold start.
   // Skipped if a sync is already in flight.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
-      if (state !== "active" || linked.length === 0 || in_flight.current.size > 0) {
+      if (
+        state !== "active" ||
+        !accounts.linked_fetched ||
+        linked.length === 0 ||
+        in_flight.current.size > 0
+      ) {
         return;
       }
       void accounts.sync_all(linked.map((a) => a.site_id));

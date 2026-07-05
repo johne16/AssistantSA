@@ -186,10 +186,19 @@ export function open_voice_stream(
       body?: string;
       when?: string;
       scheduled_at?: string;
+      error?: string;
     };
     try {
       frame = JSON.parse(message.data) as typeof frame;
     } catch {
+      return;
+    }
+    if (frame.type === "error") {
+      // Bridge-side failure (auth rejected, ap-voice unreachable): surface it
+      // and end the session instead of sitting on a silently dead socket.
+      handlers.on_status("error");
+      handlers.on_error(frame.error ?? "voice stream error");
+      teardown();
       return;
     }
     if (frame.type === "reminder") {

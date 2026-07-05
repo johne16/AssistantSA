@@ -91,7 +91,18 @@ export function send_assistant_query(
       es.removeAllEventListeners();
       es.close();
     } else if (event.type === "error") {
-      handlers.on_error(event.message ?? "connection error");
+      // A server-sent error event carries its message in event.data as JSON
+      // ({ message }); a transport-level error carries event.message.
+      const { data } = event as { data?: string };
+      let message: string | undefined;
+      if (typeof data === "string" && data) {
+        try {
+          message = (JSON.parse(data) as { message?: string }).message;
+        } catch {
+          message = data;
+        }
+      }
+      handlers.on_error(message ?? event.message ?? "connection error");
       es.removeAllEventListeners();
       es.close();
     } else if (event.type === "exception") {

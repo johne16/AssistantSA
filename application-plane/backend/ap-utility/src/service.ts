@@ -55,7 +55,10 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
     const sub = token.sub;
     switch (resource) {
       case "bills":
-        return store.read_bills(tid, sub, params.site_id);
+        // Callers address a linked account by account_ref; bills are stored per
+        // site_id and the two carry the same value (linked accounts are keyed by
+        // site_id), so either param scopes the read.
+        return store.read_bills(tid, sub, params.site_id ?? params.account_ref);
       case "usage":
         return store.read_usage(tid, sub, params.account_ref);
       case "outage":
@@ -64,12 +67,24 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
   }
 
   async function push(token: tenant_context_token, push_payload: bill_push): Promise<void> {
+    // Only sites with a linked_account record may store data: a scrape driven
+    // from a stale client-side linked list must not store bills for a site the
+    // backend considers unlinked.
+    const accounts = await store.list_linked_accounts(token.city_tenant_id, token.sub);
+    if (!accounts.some((a) => a.site_id === push_payload.site_id)) {
+      throw new Error(`site_not_linked: ${push_payload.site_id}`);
+    }
     // No credential handling; store scraped bills + usage only. Stamp each record
-    // with the store time so reads can report when the data was recorded.
+    // with the store time so reads can report when the data was recorded, and
+    // each bill with its site_id so reads can attribute it to an account.
     const recorded_at = clock.now().toISOString();
     const stamped: bill_push = {
       site_id: push_payload.site_id,
-      bills: push_payload.bills.map((b) => ({ ...b, recorded_at })),
+      bills: push_payload.bills.map((b) => ({
+        ...b,
+        site_id: push_payload.site_id,
+        recorded_at,
+      })),
       usage: push_payload.usage.map((u) => ({ ...u, recorded_at })),
     };
     await store.store_bill_push(token.city_tenant_id, token.sub, stamped);
@@ -179,6 +194,10 @@ export function create_utility_service(deps: utility_service_deps): utility_serv
     site_id: string,
   ): Promise<void> {
     await store.delete_linked_account(token.city_tenant_id, token.sub, site_id);
+    // Stored data for the site goes with the link; an unlinked account must not
+    // keep serving bills or usage.
+    await store.delete_bills(token.city_tenant_id, token.sub, site_id);
+    await store.delete_usage(token.city_tenant_id, token.sub, site_id);
   }
 
   async function run_reminder_evaluation(): Promise<void> {

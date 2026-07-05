@@ -19,6 +19,12 @@ import type { voice_session } from "./voice-client";
 // so it also covers the gap after the assistant responds.
 const voice_silence_timeout_ms = 8000;
 
+// Upper bound on the gap between a final user transcript and the first
+// assistant-side event. The short silence countdown is swapped for this longer
+// one while a response is pending, so a backend that never responds still
+// closes the session instead of holding it open indefinitely.
+const voice_response_timeout_ms = 30000;
+
 // Output level (0..1) at/above which the assistant is treated as audibly
 // playing, mirroring audio-io's playing_level. The silence countdown is held
 // while the assistant is speaking.
@@ -124,6 +130,9 @@ export function useAssistantEngine(props: {
   // assistant reply turn. Shared by a fresh submit and a retry of a failed turn.
   const open_stream = useCallback(
     (reply_id: string, message: string) => {
+      // Close any stream still open from a previous turn before starting a new
+      // one, so at most one SSE connection is live per engine.
+      close_chat_ref.current?.();
       set_sending(true);
       close_chat_ref.current = send_assistant_query(tenant_context_token, message, {
         on_token: (text) => upsert_turn(reply_id, "assistant", text, true, true),
@@ -159,10 +168,12 @@ export function useAssistantEngine(props: {
           );
         },
         on_done: () => {
+          close_chat_ref.current = null;
           upsert_turn(reply_id, "assistant", "", false, true);
           set_sending(false);
         },
         on_error: (msg) => {
+          close_chat_ref.current = null;
           set_turns((prev) =>
             prev.map((turn) =>
               turn.id === reply_id
@@ -268,6 +279,21 @@ export function useAssistantEngine(props: {
     output_level_unsub.current = null;
     voice_ref.current?.stop();
     voice_ref.current = null;
+    // Finalize any still-streaming bubbles: a pending turn with text stays as a
+    // finished turn; a pending empty bubble (the seeded "working" indicator) is
+    // dropped, since the session ended without an assistant transcript.
+    const ids = voice_turn_ids.current;
+    for (const role of ["user", "assistant"] as const) {
+      const id = ids[role];
+      if (!id) continue;
+      set_turns((prev) =>
+        prev
+          .filter((turn) => turn.id !== id || turn.text.length > 0)
+          .map((turn) =>
+            turn.id === id ? { ...turn, pending: false } : turn,
+          ),
+      );
+    }
     voice_turn_ids.current = { user: null, assistant: null };
     set_voice_state("idle");
   }, []);
@@ -284,18 +310,25 @@ export function useAssistantEngine(props: {
     }, voice_silence_timeout_ms);
   }, [stop_voice]);
 
-  // The user spoke: cancel the countdown while the response is generated. The
-  // next assistant-side event re-arms it.
+  // The user spoke: swap the short countdown for the longer response timeout
+  // while the response is generated. The next assistant-side event re-arms the
+  // short one; if nothing ever arrives, the response timeout closes the session.
   const hold_silence = useCallback(() => {
     if (silence_timer.current) {
       clearTimeout(silence_timer.current);
       silence_timer.current = null;
     }
-  }, []);
+    if (!silence_enabled.current) return;
+    silence_timer.current = setTimeout(() => {
+      silence_timer.current = null;
+      stop_voice();
+    }, voice_response_timeout_ms);
+  }, [stop_voice]);
 
-  // Tear down a live voice session if the engine unmounts mid-call, so the
-  // socket closes and the native audio engine (mic + AEC) is released instead of
-  // staying hot in the background.
+  // Tear down a live voice session and any open chat stream if the engine
+  // unmounts mid-call, so the socket and SSE connection close and the native
+  // audio engine (mic + AEC) is released instead of staying hot in the
+  // background, and no stream callback fires on the unmounted hook.
   useEffect(() => {
     return () => {
       if (silence_timer.current) clearTimeout(silence_timer.current);
@@ -304,6 +337,8 @@ export function useAssistantEngine(props: {
       output_level_unsub.current = null;
       voice_ref.current?.stop();
       voice_ref.current = null;
+      close_chat_ref.current?.();
+      close_chat_ref.current = null;
     };
   }, []);
 
@@ -360,7 +395,16 @@ export function useAssistantEngine(props: {
             ]);
           }
         },
-        on_status: set_voice_state,
+        // A server-initiated close or a socket error must tear the session down
+        // the same way a manual stop does; otherwise voice_ref stays set (wake
+        // starts silently no-op) and an "error" state holds the mic hot forever.
+        on_status: (status) => {
+          if (status === "idle" || status === "error") {
+            stop_voice();
+            return;
+          }
+          set_voice_state(status);
+        },
         on_activity: bump_silence,
         on_user_speech: hold_silence,
         on_error: (message) => {
@@ -371,7 +415,7 @@ export function useAssistantEngine(props: {
       },
       preroll,
     );
-  }, [audio, voice_id, on_transcript, tenant_context_token, upsert_turn, tr, bump_silence, hold_silence, props.on_set_reminder]);
+  }, [audio, voice_id, on_transcript, tenant_context_token, upsert_turn, tr, bump_silence, hold_silence, stop_voice, props.on_set_reminder]);
 
   // Wake-word detection: snapshot the pre-roll buffer and open the same voice
   // session as the manual toggle, seeded with the buffered opening words and

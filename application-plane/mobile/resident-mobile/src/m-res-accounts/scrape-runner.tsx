@@ -23,6 +23,11 @@ export interface scrape_runner_handle {
   run(job: scrape_job): Promise<{ bills: never[]; usage: never[] }>;
 }
 
+// Upper bound on one scrape job (page load + login + DOM reads). A site script
+// that hangs is rejected and its WebView unmounted, so it cannot wedge a sync
+// worker forever.
+const scrape_timeout_ms = 120000;
+
 // Hidden, zero-footprint container. Off-screen, not display:none, so the
 // WebView still executes.
 const offscreen = {
@@ -104,12 +109,17 @@ export const ScrapeRunner = forwardRef<scrape_runner_handle>((_props, ref) => {
       run(job) {
         return new Promise((resolve, reject) => {
           const id = next_id.current++;
+          const timeout = setTimeout(() => {
+            finish(id);
+            reject(new Error("scrape timed out"));
+          }, scrape_timeout_ms);
           set_jobs((prev) => [
             ...prev,
             {
               id,
               job,
               resolve: (msg) => {
+                clearTimeout(timeout);
                 finish(id);
                 if (msg.ok) {
                   resolve({
@@ -121,6 +131,7 @@ export const ScrapeRunner = forwardRef<scrape_runner_handle>((_props, ref) => {
                 }
               },
               reject: (err) => {
+                clearTimeout(timeout);
                 finish(id);
                 reject(err);
               },

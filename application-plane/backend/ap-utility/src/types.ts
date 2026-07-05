@@ -14,11 +14,12 @@ export type utility_resource = "bills" | "usage" | "outage";
 // Notification request type.
 export type notify_request_type = "bill_due" | "power_outage";
 
-// Stored bill record served in bills views. recorded_at is stamped when the
-// record is stored to the DB (absent on the inbound client push).
+// Stored bill record served in bills views. site_id and recorded_at are stamped
+// when the record is stored to the DB (absent on the inbound client push).
 export interface bill_view {
   due_date: string; // ISO date
   total: number; // amount due
+  site_id?: string; // linked site the bill belongs to
   recorded_at?: string; // ISO timestamp the record was stored
 }
 
@@ -130,6 +131,8 @@ export interface utility_store {
   read_usage(city_tenant_id: string, sub: string, account_ref?: string): Promise<usage_view[]>;
   read_outages(city_tenant_id: string, sub: string): Promise<outage_view[]>;
   store_bill_push(city_tenant_id: string, sub: string, push: bill_push): Promise<void>;
+  delete_bills(city_tenant_id: string, sub: string, site_id: string): Promise<void>;
+  delete_usage(city_tenant_id: string, sub: string, site_id: string): Promise<void>;
   store_outages(city_tenant_id: string, sub: string, outages: outage_view[]): Promise<void>;
   prune_outages(city_tenant_id: string, sub: string, before: string): Promise<void>;
   list_resident_addresses(city_tenant_id: string): Promise<resident_address[]>;

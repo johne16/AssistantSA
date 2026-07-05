@@ -150,6 +150,9 @@ export function AssistantScreen(props: {
             placeholder={tr("Ask the assistant anything.")}
             placeholderTextColor={t.color.ink_subtle}
             multiline
+            // Multiline inputs default to submitBehavior "newline", which
+            // inserts a newline instead of firing onSubmitEditing.
+            submitBehavior="submit"
             onSubmitEditing={submit}
             returnKeyType="send"
           />

@@ -53,6 +53,10 @@ export interface use_accounts_value {
   unlink_account(site_id: string): Promise<void>;
   // The resident's linked accounts.
   linked: linked_account[];
+  // True once linked has been fetched from the backend this session. Until
+  // then linked may be the persisted offline cache, which must not initiate
+  // scrapes: only server-side linked account records drive syncs.
+  linked_fetched: boolean;
   // Persist the resident profile to the backend.
   save_profile(profile: resident_profile): Promise<void>;
   // The resident profile. Null until first loaded/saved.
@@ -71,6 +75,10 @@ export function useAccounts(
     app_config.max_concurrent_syncs > 0 ? app_config.max_concurrent_syncs : 3;
 
   const listeners = useRef<Set<sync_listener>>(new Set());
+  // Per-site in-flight syncs. A second sync of a site already syncing (e.g. a
+  // manual sync overlapping sync_all) joins the running one instead of
+  // double-scraping and pushing the same bills twice.
+  const in_flight = useRef<Map<string, Promise<sync_result>>>(new Map());
   const client = useQueryClient();
 
   const emit = useCallback((result: sync_result) => {
@@ -256,9 +264,13 @@ export function useAccounts(
   );
 
   // Run a single site through the off-screen WebView. Reads creds at scrape
-  // time, fetches the fresh script, drives the scrape, pushes results.
+  // time, fetches the fresh script, drives the scrape, pushes results. A site
+  // already in flight is joined, not scraped again.
   const run_site = useCallback(
-    async (site_id: string): Promise<sync_result> => {
+    (site_id: string): Promise<sync_result> => {
+      const existing = in_flight.current.get(site_id);
+      if (existing) return existing;
+      const promise = (async (): Promise<sync_result> => {
       emit({ site_id, sync_status: "syncing" });
       console.log(`[scrape ${site_id}] sync start`);
       try {
@@ -301,6 +313,11 @@ export function useAccounts(
         emit(result);
         return result;
       }
+      })().finally(() => {
+        in_flight.current.delete(site_id);
+      });
+      in_flight.current.set(site_id, promise);
+      return promise;
     },
     [emit, fetch_site_script, push_bills, runner],
   );
@@ -337,6 +354,7 @@ export function useAccounts(
   // site_ids and calls sync_all on app open.
 
   const linked = linked_query.data ?? EMPTY_LINKED;
+  const linked_fetched = linked_query.isFetchedAfterMount;
   const profile = profile_query.data ?? null;
 
   return useMemo<use_accounts_value>(
@@ -347,6 +365,7 @@ export function useAccounts(
       register_linked_account,
       unlink_account,
       linked,
+      linked_fetched,
       save_profile,
       profile,
       on_sync_result,
@@ -358,6 +377,7 @@ export function useAccounts(
       register_linked_account,
       unlink_account,
       linked,
+      linked_fetched,
       save_profile,
       profile,
       on_sync_result,

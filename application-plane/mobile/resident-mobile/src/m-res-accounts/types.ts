@@ -15,10 +15,12 @@ export interface tenant_context_token {
 // Utility resource selector.
 export type utility_resource = "bills" | "usage" | "outage";
 
-// Stored bill record served in bills views.
+// Stored bill record served in bills views. site_id is stamped by ap-utility at
+// store (absent on the outbound scrape push).
 export interface bill_view {
   due_date: string; // ISO date
   total: number; // amount due
+  site_id?: string; // linked site the bill belongs to
 }
 
 // Stored usage record served in usage views.

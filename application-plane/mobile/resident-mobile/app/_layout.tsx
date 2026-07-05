@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import { NavigationBar } from 'expo-navigation-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -100,8 +101,17 @@ export default function RootLayout() {
             <ThemeProvider>
               <LangProvider>
                 <StatusBar style="auto" />
+                {/* Hide the Android system navigation bar so it does not cover
+                    the bottom of the app; a swipe from the edge reveals it
+                    transiently. autoHideHomeIndicator is the iOS equivalent. */}
+                <NavigationBar hidden />
                 <ErrorBoundary>
-                  <Stack screenOptions={{ headerShown: false }} />
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      autoHideHomeIndicator: true,
+                    }}
+                  />
                 </ErrorBoundary>
               </LangProvider>
             </ThemeProvider>
