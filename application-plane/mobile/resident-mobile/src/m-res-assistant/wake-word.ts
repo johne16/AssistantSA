@@ -19,6 +19,7 @@ import type { audio_io, wake_status } from "./types";
 
 // Streaming constants from the openWakeWord reference pipeline.
 const SAMPLES_PER_STEP = 1280; // 80ms at 16kHz, one melspectrogram step
+const MEL_OVERLAP = 480; // tail of the previous step prepended to each mel input (160*3)
 const MEL_BINS = 32;
 const EMBEDDING_WINDOW = 76; // mel frames per embedding
 const EMBEDDING_STEP = 8; // mel frames advanced per embedding
@@ -90,6 +91,8 @@ function base64_to_int16(b64: string): Int16Array {
 function create_engine(sessions: wake_sessions, on_detected: () => void) {
     // Raw int16 samples (as float32) awaiting the next melspectrogram step.
     let raw: number[] = [];
+    // Last 480 samples of the previous step, prepended to the next mel input.
+    let prev_tail: number[] = [];
     // Accumulated 32-bin mel frames.
     let mel: number[][] = [];
     // Index of the next embedding window's first mel frame.
@@ -110,8 +113,13 @@ function create_engine(sessions: wake_sessions, on_detected: () => void) {
 
     // Run the melspectrogram model on one 1280-sample step, appending its mel
     // frames to the buffer. openWakeWord applies spec/10 + 2 to the raw output.
+    // The last 480 samples of the previous step are prepended so mel windows
+    // straddling the chunk boundary see real audio; 8 frames per step instead
+    // of 5, matching openWakeWord's streaming pipeline.
     async function step_melspectrogram(samples: number[]): Promise<void> {
-        const input = new Tensor("float32", Float32Array.from(samples), [1, SAMPLES_PER_STEP]);
+        const window = prev_tail.concat(samples);
+        prev_tail = samples.slice(samples.length - MEL_OVERLAP);
+        const input = new Tensor("float32", Float32Array.from(window), [1, window.length]);
         const result = await sessions.melspectrogram.run({ [mel_in]: input });
         const out = result[mel_out];
         const data = out.data as Float32Array;
@@ -197,6 +205,7 @@ function create_engine(sessions: wake_sessions, on_detected: () => void) {
         },
         reset(): void {
             raw = [];
+            prev_tail = [];
             mel = [];
             mel_window_start = 0;
             embeddings = [];
