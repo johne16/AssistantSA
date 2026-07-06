@@ -30,7 +30,10 @@ export function create_voice_bridge(deps: voice_bridge_deps): {
 
   wss.on("connection", (client: WebSocket) => {
     let upstream: WebSocket | null = null;
-    let authorized = false;
+    // Only the very first frame is the handshake. Frames arriving while token
+    // verification is still awaiting are audio; they queue in pending rather
+    // than re-entering the auth branch.
+    let auth_state: "pending" | "authorizing" | "authorized" = "pending";
     const pending: RawData[] = [];
 
     const close_both = () => {
@@ -48,7 +51,8 @@ export function create_voice_bridge(deps: voice_bridge_deps): {
 
     client.on("message", async (data: RawData, isBinary: boolean) => {
       // First frame authorizes the stream: { tenant_context_token }.
-      if (!authorized) {
+      if (auth_state === "pending") {
+        auth_state = "authorizing";
         try {
           const text = data.toString();
           const open = JSON.parse(text) as { tenant_context_token?: string };
@@ -60,7 +64,7 @@ export function create_voice_bridge(deps: voice_bridge_deps): {
           close_both();
           return;
         }
-        authorized = true;
+        auth_state = "authorized";
 
         // Open the upstream ap-voice connection and flush queued frames.
         upstream = new WebSocket(deps.ap_voice_ws_url);
