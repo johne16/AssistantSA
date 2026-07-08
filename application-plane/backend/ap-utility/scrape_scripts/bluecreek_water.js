@@ -1,6 +1,6 @@
-// herokuapp client scrape script (test flow, hand-written).
+// bluecreek_water client scrape script (test flow, hand-written).
 //
-// @url https://the-internet.herokuapp.com/
+// @url https://quotes.toscrape.com/js/
 //
 // Runs inside the off-screen WebView mounted by scrape-runner. The runner
 // re-injects this on every page load and calls run_scrape(creds) each time.
@@ -9,11 +9,12 @@
 // load. When the recorded extraction point is reached, the embedded routine
 // reads the billing data and resolves once.
 //
-// Exercises every step type against a public automation-practice site:
-// goto (initial and mid-flow), click (navigating), fill_text, wait_for, and
-// fill_credential. Log in with username "tomsmith" and password
-// "SuperSecretPassword!". The extraction reads the secure-area flash message
-// and reports its character count as the bill total with a dummy due date.
+// Exercises client-side-rendered content: the quotes on this site are written
+// into the DOM by page JavaScript after load, so the extraction retry loop is
+// what makes this work. Two "Next" clicks with the same descriptor also test
+// repeated pointer advances across page loads. No credentials are used. The
+// extraction waits for the first quote on page 3 and reports a fixed bill
+// total and due date.
 //
 // Each element is located by the same identity the recorder captures (id, then
 // name, aria-label, placeholder, then role + visible text) rather than a
@@ -24,7 +25,7 @@
 var NAV_STEPS = [
   {
     "type": "goto",
-    "url": "https://the-internet.herokuapp.com/"
+    "url": "https://quotes.toscrape.com/js/"
   },
   {
     "type": "click",
@@ -35,84 +36,29 @@ var NAV_STEPS = [
       "aria_label": "",
       "placeholder": "",
       "role": "",
-      "text": "Key Presses"
+      "text": "Next →"
     }
-  },
-  {
-    "type": "fill_text",
-    "descriptor": {
-      "tag": "input",
-      "id": "target",
-      "name": "",
-      "aria_label": "",
-      "placeholder": "",
-      "role": "",
-      "text": ""
-    },
-    "value": "scrape-runner test"
-  },
-  {
-    "type": "goto",
-    "url": "https://the-internet.herokuapp.com/login"
-  },
-  {
-    "type": "wait_for",
-    "descriptor": {
-      "tag": "input",
-      "id": "username",
-      "name": "username",
-      "aria_label": "",
-      "placeholder": "",
-      "role": "",
-      "text": ""
-    }
-  },
-  {
-    "type": "fill_credential",
-    "descriptor": {
-      "tag": "input",
-      "id": "username",
-      "name": "username",
-      "aria_label": "",
-      "placeholder": "",
-      "role": "",
-      "text": ""
-    },
-    "which": "username"
-  },
-  {
-    "type": "fill_credential",
-    "descriptor": {
-      "tag": "input",
-      "id": "password",
-      "name": "password",
-      "aria_label": "",
-      "placeholder": "",
-      "role": "",
-      "text": ""
-    },
-    "which": "password"
   },
   {
     "type": "click",
     "descriptor": {
-      "tag": "button",
+      "tag": "a",
       "id": "",
       "name": "",
       "aria_label": "",
       "placeholder": "",
       "role": "",
-      "text": "Login"
+      "text": "Next →"
     }
   }
 ];
 
 var EXTRACTION = () => {
-  const flash = document.querySelector('#flash');
-  if (!flash) return { bills: [], usage: [] };
-  const message = flash.textContent.trim();
+  const quote = document.querySelector('.quote .text');
+  if (!quote) return { bills: [], usage: [] };
+  const text = quote.textContent.trim();
   return {
-    bills: [{ due_date: "2026-12-31", total: message.length }],
+    bills: [{ due_date: "2026-07-31", total: 71.38 }],
     usage: []
   };
 };
