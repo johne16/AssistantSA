@@ -9,10 +9,20 @@ import type {
 
 // Voice transport. Opens one duplex WebSocket to the API gateway: hands-free
 // audio chunks stream up while MP3 chunks and transcript text stream down the
-// same connection. Capture keeps flowing up during playback to enable barge-in.
-// No audio is persisted; only transcript text reaches the screen.
+// same connection. The uplink is muted while the assistant is audibly playing
+// so speaker echo never reaches STT; barge-in is signaled by an explicit
+// barge_in message. No audio is persisted; only transcript text reaches the
+// screen.
 
 const voice_path = "/voice/stream";
+
+// Output level (0..1) at/above which the assistant is treated as audibly
+// playing, mirroring audio-io's playing_level.
+const playing_level = 0.01;
+// Output-level events fire only while audibly playing; once they stop arriving
+// for this long, the assistant is treated as finished speaking and the uplink
+// unmutes.
+const playback_settle_ms = 800;
 
 // Callbacks the screen supplies to render transcript turns and status.
 export interface voice_handlers {
@@ -118,11 +128,29 @@ export function open_voice_stream(
     }
   };
 
+  // Mute the uplink while the assistant is audibly playing: the AEC leaks the
+  // speaker output into the mic before its filter converges (worst on the first
+  // playback of a session, where the filler comes back as a user utterance), so
+  // captured frames are dropped rather than sent while output-level events show
+  // playback, and for playback_settle_ms after they stop.
+  let uplink_muted = false;
+  let unmute_timer: ReturnType<typeof setTimeout> | null = null;
+  const level_unsub = audio.on_output_level((level) => {
+    if (level < playing_level) return;
+    uplink_muted = true;
+    if (unmute_timer) clearTimeout(unmute_timer);
+    unmute_timer = setTimeout(() => {
+      unmute_timer = null;
+      uplink_muted = false;
+    }, playback_settle_ms);
+  });
+
   // Continuous capture is owned by the assistant engine; this session just
   // consumes frames for its lifetime. Until the queue is flushed on open, every
-  // frame is queued so it lands after the pre-roll; afterwards frames send live
-  // (capture keeps flowing during playback so the user can barge in).
+  // frame is queued so it lands after the pre-roll; afterwards frames send live.
+  // Frames captured while the assistant is speaking are dropped, not queued.
   const frame_unsub = audio.on_input_frame((pcm_base64) => {
+    if (uplink_muted) return;
     if (flushed && socket.readyState === WebSocket.OPEN) send_chunk(pcm_base64);
     else pending.push(pcm_base64);
   });
@@ -133,6 +161,11 @@ export function open_voice_stream(
     closed = true;
     frame_unsub();
     barge_unsub();
+    level_unsub();
+    if (unmute_timer) {
+      clearTimeout(unmute_timer);
+      unmute_timer = null;
+    }
     // Drop in-flight playback but leave the capture engine running: continuous
     // wake listening outlives this session.
     audio.flush_playback();
