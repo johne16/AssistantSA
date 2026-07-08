@@ -15,7 +15,6 @@ export interface notification_preferences {
   utility_alert_enabled: boolean;
   city_alert_enabled: boolean;
   bills_reminder_enabled: boolean;
-  event_reminder_enabled: boolean;
 }
 
 // Notification type discriminant carried on deep-link navigation.
@@ -23,7 +22,6 @@ export type notification_type =
   | "power_outage"
   | "emergency_alert"
   | "bill_due"
-  | "event_reminder"
   | "reminder"
   // Client-local only: an on-device account sync failed. Never sent by the
   // backend; raised on-device since the scrape failure is known only here.

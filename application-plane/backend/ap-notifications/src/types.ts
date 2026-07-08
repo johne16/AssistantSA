@@ -17,17 +17,15 @@ export interface notification_preferences {
   utility_alert_enabled: boolean;
   city_alert_enabled: boolean;
   bills_reminder_enabled: boolean;
-  event_reminder_enabled: boolean;
 }
 
-// The notification types a source module may request. The first four are gated
+// The notification types a source module may request. The first three are gated
 // by a per-type opt-in; reminder (a reminder the resident set themselves) is
 // always delivered and has no opt-in.
 export type notification_type =
   | "power_outage"
   | "emergency_alert"
   | "bill_due"
-  | "event_reminder"
   | "reminder";
 
 // Notification content a source module has already composed. ap-notifications

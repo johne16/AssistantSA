@@ -21,7 +21,6 @@ const opt_in_flag_by_type: Record<
   power_outage: "utility_alert_enabled",
   emergency_alert: "city_alert_enabled",
   bill_due: "bills_reminder_enabled",
-  event_reminder: "event_reminder_enabled",
   reminder: null,
 };
 

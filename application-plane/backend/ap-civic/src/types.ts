@@ -22,7 +22,7 @@ export type civic_resource =
   | "find_my_rep"
   | "my_area";
 
-export type notify_request_type = "emergency_alert" | "event_reminder";
+export type notify_request_type = "emergency_alert";
 
 export type my_area_kind = "school" | "neighborhood";
 

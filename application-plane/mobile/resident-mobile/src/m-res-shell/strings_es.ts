@@ -53,8 +53,6 @@ export const strings_es: Record<string, string> = {
   "Outages and utility service alerts at your address.": "Cortes y alertas de servicios públicos en tu dirección.",
   "City alerts": "Alertas de la ciudad",
   "Civic alerts that affect your area.": "Alertas cívicas que afectan tu zona.",
-  "Event reminders": "Recordatorios de eventos",
-  "A reminder before local events.": "Un recordatorio antes de eventos locales.",
   "Bill due reminders": "Recordatorios de vencimiento de facturas",
   "A reminder one day before a utility bill is due.": "Un recordatorio un día antes de que venza una factura de servicios.",
   "Voice": "Voz",

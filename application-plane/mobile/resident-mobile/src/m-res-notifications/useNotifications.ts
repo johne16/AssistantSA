@@ -35,14 +35,12 @@ const default_preferences: notification_preferences = {
   utility_alert_enabled: true,
   city_alert_enabled: true,
   bills_reminder_enabled: true,
-  event_reminder_enabled: true,
 };
 
 const valid_types: ReadonlySet<notification_type> = new Set([
   "power_outage",
   "emergency_alert",
   "bill_due",
-  "event_reminder",
   "reminder",
   "utility_sync_failed",
 ]);

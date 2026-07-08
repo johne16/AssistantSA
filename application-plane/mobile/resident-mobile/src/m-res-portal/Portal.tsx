@@ -64,12 +64,11 @@ const DEFAULT_PREFS: notification_preferences = {
   push_enabled: true,
   utility_alert_enabled: true,
   city_alert_enabled: true,
-  event_reminder_enabled: false,
   bills_reminder_enabled: true,
 };
 
-// Map the portal's five-toggle preferences to the notifications module's
-// four-type opt-ins. push_enabled is the master switch: when off, every type is
+// Map the portal's four-toggle preferences to the notifications module's
+// three-type opt-ins. push_enabled is the master switch: when off, every type is
 // silenced so nothing is delivered.
 function to_push_prefs(p: notification_preferences): push_preferences {
   if (!p.push_enabled) {
@@ -77,14 +76,12 @@ function to_push_prefs(p: notification_preferences): push_preferences {
       utility_alert_enabled: false,
       city_alert_enabled: false,
       bills_reminder_enabled: false,
-      event_reminder_enabled: false,
     };
   }
   return {
     utility_alert_enabled: p.utility_alert_enabled,
     city_alert_enabled: p.city_alert_enabled,
     bills_reminder_enabled: p.bills_reminder_enabled,
-    event_reminder_enabled: p.event_reminder_enabled,
   };
 }
 

@@ -332,9 +332,6 @@ export function create_civic_service(deps: civic_deps): civic_service {
       await store.insert_events(tenant, fresh);
     }
     await prune(tenant, "city_events", config.events_retention_days);
-    for (const entry of fresh) {
-      await send_notify(entry.title, entry.description, entry.entry_id, "event_reminder");
-    }
   }
 
   // sa.gov events is server-rendered HTML with ASP.NET postback pagination. GET

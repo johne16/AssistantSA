@@ -260,12 +260,6 @@ export function SettingsScreen(props: {
           onToggle={() => toggle_pref("city_alert_enabled")}
         />
         <SwitchRow
-          label={tr("Event reminders")}
-          blurb={tr("A reminder before local events.")}
-          value={prefs.event_reminder_enabled}
-          onToggle={() => toggle_pref("event_reminder_enabled")}
-        />
-        <SwitchRow
           label={tr("Bill due reminders")}
           blurb={tr("A reminder one day before a utility bill is due.")}
           value={prefs.bills_reminder_enabled}

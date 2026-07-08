@@ -99,6 +99,5 @@ export interface notification_preferences {
   push_enabled: boolean;
   utility_alert_enabled: boolean;
   city_alert_enabled: boolean;
-  event_reminder_enabled: boolean;
   bills_reminder_enabled: boolean;
 }
