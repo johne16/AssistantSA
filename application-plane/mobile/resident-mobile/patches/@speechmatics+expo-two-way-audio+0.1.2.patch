@@ -1,8 +1,53 @@
 diff --git a/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/AudioEngine.kt b/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/AudioEngine.kt
-index 0103151..ca55328 100644
+index 0103151..3e593a0 100644
 --- a/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/AudioEngine.kt
 +++ b/node_modules/@speechmatics/expo-two-way-audio/android/src/main/java/expo/modules/twowayaudio/AudioEngine.kt
-@@ -286,6 +286,22 @@ class AudioEngine (context: Context) {
+@@ -24,12 +24,18 @@ class AudioEngine (context: Context) {
+     private val SAMPLE_RATE = 16000
+     private val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+     private val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
++    // Prime the playback queue with ~250ms of audio (16kHz mono s16) before the
++    // first write of a burst, so playback never starts on a starved buffer.
++    private val PRIME_BYTES = 8000
++    // Upper bound on the priming wait, so a tail shorter than PRIME_BYTES still plays.
++    private val PRIME_TIMEOUT_MS = 300L
+ 
+     private lateinit var audioRecord: AudioRecord
+     private lateinit var audioManager: AudioManager
+     private lateinit var audioTrack: AudioTrack
+     private var audioFocusRequest: AudioFocusRequest? = null
+     private val audioSampleQueue: Queue<ByteArray> = LinkedList()
++    private val queuedBytes = java.util.concurrent.atomic.AtomicInteger(0)
+     private var echoCanceler: AcousticEchoCanceler? = null
+     private var noiseSuppressor: NoiseSuppressor? = null
+     private val executorServiceMicrophone = Executors.newFixedThreadPool(1)
+@@ -252,6 +258,7 @@ class AudioEngine (context: Context) {
+     }
+ 
+     fun playPCMData(data: ByteArray) {
++        queuedBytes.addAndGet(data.size)
+         audioSampleQueue.add(data)
+         if (!isPlaying) {
+             playAudioFromSampleQueue()
+@@ -262,9 +269,17 @@ class AudioEngine (context: Context) {
+         executorServicePlayback.execute{
+             isPlaying = true
+             try {
++                // Prime: hold the first write until PRIME_BYTES of audio are
++                // queued (or the timeout lapses), so the track is fed a
++                // continuous backlog instead of starving between chunks.
++                val deadline = System.currentTimeMillis() + PRIME_TIMEOUT_MS
++                while (queuedBytes.get() < PRIME_BYTES && System.currentTimeMillis() < deadline) {
++                    Thread.sleep(10)
++                }
+                 while (audioSampleQueue.isNotEmpty()){
+                     val data = audioSampleQueue.poll()
+                     if (data != null){
++                        queuedBytes.addAndGet(-data.size)
+                         playSample(data)
+                         val audioVolume = calculateRMSLevel(data)
+                         onOutputVolumeCallback?.invoke(audioVolume)
+@@ -286,6 +301,23 @@ class AudioEngine (context: Context) {
          audioTrack.write(data, 0, data.size)
      }
  
@@ -11,6 +56,7 @@ index 0103151..ca55328 100644
 +    // pause, flush, then resume. Used for barge-in to cut in-flight speech.
 +    fun flush() {
 +        audioSampleQueue.clear()
++        queuedBytes.set(0)
 +        try {
 +            audioTrack.pause()
 +            audioTrack.flush()
@@ -68,16 +114,98 @@ index 8904fc2..e4fa6f6 100644
      return ExpoTwoWayAudioModule.toggleRecording(val);
  }
 diff --git a/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift b/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift
-index 46d6b22..0ae77f7 100644
+index 46d6b22..49185b4 100644
 --- a/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift
 +++ b/node_modules/@speechmatics/expo-two-way-audio/ios/AudioEngine.swift
-@@ -239,6 +239,14 @@ class AudioEngine {
+@@ -28,6 +28,18 @@ class AudioEngine {
+     private var discardRecording = false
+     private var discardFirstInputMillis = 2000
+ 
++    // Prime the player with ~250ms of audio (16kHz) before scheduling the first
++    // buffer of a burst, so playback never starts on a starved node. All priming
++    // state is confined to playbackQueue.
++    private let playbackQueue = DispatchQueue(label: "expo-two-way-audio.playback")
++    private var primeQueue: [AVAudioPCMBuffer] = []
++    private var primedFrames: AVAudioFrameCount = 0
++    private var primeTimer: DispatchWorkItem?
++    private var scheduledBuffers = 0
++    private let primeFrames: AVAudioFrameCount = 4000
++    // Upper bound on the priming wait, so a tail shorter than primeFrames still plays.
++    private let primeTimeoutMillis = 300
++    
+     enum AudioEngineError: Error {
+         case audioFormatError
+     }
+@@ -200,8 +212,54 @@ class AudioEngine {
+             print("Failed to create audio buffer")
+             return
+         }
+-        speechPlayer.scheduleBuffer(buffer)
++        playbackQueue.async {
++            // Nothing scheduled (a fresh burst) or already priming: hold the
++            // buffer until enough audio has accumulated, then schedule it all.
++            if self.scheduledBuffers == 0 || !self.primeQueue.isEmpty {
++                self.primeQueue.append(buffer)
++                self.primedFrames += buffer.frameLength
++                if self.primedFrames >= self.primeFrames {
++                    self.drainPrimeQueue()
++                } else if self.primeTimer == nil {
++                    let timer = DispatchWorkItem { [weak self] in
++                        self?.primeTimer = nil
++                        self?.drainPrimeQueue()
++                    }
++                    self.primeTimer = timer
++                    self.playbackQueue.asyncAfter(
++                        deadline: .now() + .milliseconds(self.primeTimeoutMillis),
++                        execute: timer
++                    )
++                }
++            } else {
++                self.scheduleBuffer(buffer)
++            }
++        }
++    }
++
++    // Must run on playbackQueue.
++    private func drainPrimeQueue() {
++        primeTimer?.cancel()
++        primeTimer = nil
++        let buffers = primeQueue
++        primeQueue = []
++        primedFrames = 0
++        for buffer in buffers {
++            scheduleBuffer(buffer)
++        }
++    }
+ 
++    // Must run on playbackQueue.
++    private func scheduleBuffer(_ buffer: AVAudioPCMBuffer) {
++        scheduledBuffers += 1
++        speechPlayer.scheduleBuffer(buffer) { [weak self] in
++            guard let self = self else { return }
++            self.playbackQueue.async {
++                // flush() resets the count to 0 while consumed-buffer callbacks
++                // may still land; never go negative.
++                self.scheduledBuffers = max(0, self.scheduledBuffers - 1)
++            }
++        }
+         if !speechPlayer.isPlaying {
+             speechPlayer.play()
+         }
+@@ -239,6 +297,21 @@ class AudioEngine {
          input.isVoiceProcessingBypassed = bypass
      }
-     
+ 
 +    // Drop all audio not yet played. stop() clears every scheduled buffer on the
 +    // player node; play() leaves it ready for the next turn. Used for barge-in.
 +    func flush() {
++        playbackQueue.async {
++            self.primeTimer?.cancel()
++            self.primeTimer = nil
++            self.primeQueue = []
++            self.primedFrames = 0
++            self.scheduledBuffers = 0
++        }
 +        speechPlayer.stop()
 +        speechPlayer.play()
 +        updateOutputVolume()
@@ -87,7 +215,7 @@ index 46d6b22..0ae77f7 100644
          isRecording = val
          if !isRecording {
 diff --git a/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift b/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift
-index 1634369..a04de88 100644
+index 1634369..c340710 100644
 --- a/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift
 +++ b/node_modules/@speechmatics/expo-two-way-audio/ios/ExpoTwoWayAudioModule.swift
 @@ -114,6 +114,10 @@ public class ExpoTwoWayAudioModule: Module {
@@ -101,41 +229,6 @@ index 1634369..a04de88 100644
          Function("isPlaying") { () -> Bool in
              return self.audioEngine?.isPlaying ?? false
          }
-@@ -122,7 +126,7 @@ public class ExpoTwoWayAudioModule: Module {
-             EXPermissionsMethodsDelegate.getPermissionWithPermissionsManager(
-                 self.appContext?.permissions,
-                 withRequester: MicrophonePermissionRequester.self,
--                resolve: promise.resolver,
-+                resolve: promise.legacyResolver,
-                 reject: promise.legacyRejecter
-             )
-         }
-@@ -131,7 +135,7 @@ public class ExpoTwoWayAudioModule: Module {
-             EXPermissionsMethodsDelegate.askForPermission(
-                 withPermissionsManager: self.appContext?.permissions,
-                 withRequester: MicrophonePermissionRequester.self,
--                resolve: promise.resolver,
-+                resolve: promise.legacyResolver,
-                 reject: promise.legacyRejecter
-             )
-         }
-diff --git a/node_modules/@speechmatics/expo-two-way-audio/ios/MicrophonePermissionRequester.swift b/node_modules/@speechmatics/expo-two-way-audio/ios/MicrophonePermissionRequester.swift
-index fb81f46..ca19627 100644
---- a/node_modules/@speechmatics/expo-two-way-audio/ios/MicrophonePermissionRequester.swift
-+++ b/node_modules/@speechmatics/expo-two-way-audio/ios/MicrophonePermissionRequester.swift
-@@ -15,10 +15,10 @@ class MicrophonePermissionRequester: NSObject, EXPermissionsRequester {
-     var status: EXPermissionStatus
- 
-     guard (Bundle.main.infoDictionary?["NSMicrophoneUsageDescription"]) != nil else {
--      EXFatal(EXErrorWithMessage("""
-+      NSLog("""
-         This app is missing NSMicrophoneUsageDescription, so audio services will fail.
-         Add one of these keys to your bundle's Info.plist.
--      """))
-+      """)
-       return ["status": EXPermissionStatusDenied]
-     }
- 
 diff --git a/node_modules/@speechmatics/expo-two-way-audio/src/core.ts b/node_modules/@speechmatics/expo-two-way-audio/src/core.ts
 index 2ab05d5..0a752ae 100644
 --- a/node_modules/@speechmatics/expo-two-way-audio/src/core.ts
