@@ -26,14 +26,7 @@ import type { audio_io } from "./types";
 // patched library exposes flush(), which clears both its sample queue and the
 // AudioTrack buffer, so barge-in cuts in-flight speech instantly; no JS-side
 // pacing layer is needed.
-//
-// Barge-in is detected locally: onInputVolumeLevelData crosses a threshold while
-// the assistant is playing (tracked via onOutputVolumeLevelData). On barge-in
-// the engine is flushed and the backend is signaled to stop generating.
 
-// Input level (0..1) above which the user is treated as speaking, triggering a
-// barge-in flush of any in-flight playback.
-const barge_in_level = 0.28;
 // Output level (0..1) above which the assistant is treated as audibly playing.
 const playing_level = 0.01;
 
@@ -79,7 +72,6 @@ export function useAudioIo(): audio_io {
   // once before any capture/playback call, and is re-run after a tearDown.
   const init = useRef<Promise<void> | null>(null);
   const mic_sub = useRef<{ remove: () => void } | null>(null);
-  const in_vol_sub = useRef<{ remove: () => void } | null>(null);
   const out_vol_sub = useRef<{ remove: () => void } | null>(null);
   // Dedupes start_capture: held while capture is running (or starting) so the
   // wake listener and a voice session can both call start_capture without ever
@@ -174,18 +166,6 @@ export function useAudioIo(): audio_io {
             assistant_playing.current = event.data > playing_level;
             output_listeners.current.forEach((handler) => handler(event.data));
           });
-          // Local barge-in: when the (echo-cancelled) input level crosses the
-          // threshold while the assistant is playing, the user is speaking over
-          // it; flush local playback and notify subscribers (the session tells
-          // the backend to stop generating).
-          in_vol_sub.current?.remove();
-          in_vol_sub.current = addExpoTwoWayAudioEventListener("onInputVolumeLevelData", (event) => {
-            if (event.data > barge_in_level && assistant_playing.current) {
-              console.log("[voice] barge-in detected, flushing + signaling backend");
-              flush_playback();
-              barge_listeners.current.forEach((handler) => handler());
-            }
-          });
           // Unmute the mic to begin emitting onMicrophoneData events.
           toggleRecording(true);
         } catch (err) {
@@ -201,8 +181,6 @@ export function useAudioIo(): audio_io {
       toggleRecording(false);
       mic_sub.current?.remove();
       mic_sub.current = null;
-      in_vol_sub.current?.remove();
-      in_vol_sub.current = null;
       out_vol_sub.current?.remove();
       out_vol_sub.current = null;
       // Release the native engine; a fresh initialize() runs on the next start.
